@@ -27,6 +27,9 @@ from isaacsim.core.api.objects import VisualCuboid
 from isaacsim.sensors.camera import Camera
 from pxr import Sdf, UsdLux, UsdGeom, Gf
 
+import datagen2_isaacsim.hardwares as hardwares
+from model import GeometricServoing
+
 # Add Ground Plane
 GroundPlane(prim_path="/World/GroundPlane", z_position=0)
 
@@ -35,44 +38,16 @@ stage = omni.usd.get_context().get_stage()
 distantLight = UsdLux.DistantLight.Define(stage, Sdf.Path("/DistantLight"))
 distantLight.CreateIntensityAttr(300)
 
-camera = Camera(
-    prim_path="/World/camera",
-    position=np.array([3.0, 0.0, 2.0]),
-    frequency=20,
-    resolution=(1920, 1080),
-    orientation=rot_utils.euler_angles_to_quats(np.array([0, -90, 0]), degrees=True),
-)
-CAMERA_INTRINSICS = []
-fx = 1000.0
-fy = 1000.0
-cx = 1920 / 2
-cy = 1080 / 2
-K = np.array([[fx, 0.0, cx], [0.0, fy, cy], [0.0, 0.0, 1.0]])
-CAMERA_INTRINSICS = K
+camera = create_camera()
 
 my_world = World(stage_units_in_meters=1.0)
-
-camera_marker = my_world.scene.add(
-    VisualCuboid(
-        prim_path="/World/camera_marker",
-        name="camera_marker",
-        position=np.array([3.0, 0.0, 2.0]),
-        size=0.15,
-        color=np.array([255, 0, 0]),
-    )
-)
 
 my_world.reset()
 camera.initialize()
 
-
-circle_center = np.array([0.0, 0.0, 2.0])
-camera_pos = np.array([3.0, 0.0, 2.0], dtype=np.float64)
-
-def get_image():
+def get_obs():
     return camera.get_color_rgba()
 
-# this will be jeff's API
 def get_target_point():
     pass
 
@@ -87,7 +62,7 @@ def cam_to_world(cam_point):
 # start the simulator
 for i in range(100):
     # capture camera image
-    image = get_image()
+    observation = get_obs()
 
     # jeff's code here
     grasp_point_image = get_target_point()
