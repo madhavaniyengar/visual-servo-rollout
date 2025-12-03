@@ -39,8 +39,8 @@ def get_direction(left_img, cam2world):
     direction_world = (
             torch.einsum(
                 'ij,bj->bi',
-                cam2world,
-                GeometricServoing.hom(direction_camera)
+                cam2world[:3, :3],
+                direction_camera
             )
     )
     assert direction_world.shape[0] == 1, "Only one vector is expected??"
