@@ -14,8 +14,37 @@
 # limitations under the License.
 
 import numpy as np
+import torch
 from isaacsim import SimulationApp
 import os
+
+from model import GeometricServoing
+from CornerDetector.cornerdetector import prepare_corner_model, TransformOutputs
+
+model = TransformOutputs(
+    GeometricServoing(
+        annotation_ndc=torch.as_tensor([0., 1.]),
+        corner_model=prepare_corner_model(),
+        os.path.abspath("../calibs.json"),
+        "cuda"
+    ),
+    lambda output : GeometricServoing.grasp2cam_transform(output)[..., :3, -1]
+)
+
+def get_direction(left_img, cam2world):
+    direction_camera = model(left_img)
+    assert len(direction_camera.shape) == 2, "Output of model isn't batched huh??"
+    assert direction_camera.shape[0] == 1, "Supposed to only be one direction as output??"
+    assert cam2world.shape[-1] == 4, "Not an actual cam2world??"
+    direction_world = (
+            torch.einsum(
+                'ij,bj->bi',
+                cam2world,
+                GeometricServoing.hom(direction_camera)
+            )
+    )
+    assert direction_world.shape[0] == 1, "Only one vector is expected??"
+    return direction_world.squeeze()[:3]
 
 simulation_app = SimulationApp({
     "headless": False,
