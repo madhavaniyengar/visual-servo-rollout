@@ -15,40 +15,57 @@
 
 import numpy as np
 from isaacsim import SimulationApp
-from standalone_examples.benchmarks.validation.benchmark_sdg_validation import passed
+import os
 
-simulation_app = SimulationApp({"headless": False})
+simulation_app = SimulationApp({
+    "headless": False,
+    "width": 1920,
+    "height": 1080,
+})
+
 
 import omni.usd
-import isaacsim.core.utils.numpy.rotations as rot_utils
+import isaacsim.core.utils.numpy.rotations as rot_utils_np
+import isaacsim.core.utils.rotations as rot_utils
 from isaacsim.core.api import World
 from isaacsim.core.api.objects.ground_plane import GroundPlane
 from isaacsim.core.api.objects import VisualCuboid
 from isaacsim.sensors.camera import Camera
 from pxr import Sdf, UsdLux, UsdGeom, Gf
+from isaacsim.core.utils.viewports import set_camera_view
+# Create a fresh new stage first to avoid render product conflicts
+omni.usd.get_context().new_stage()
+for _ in range(10):
+    simulation_app.update()
+
+# Get the fresh stage
+stage = omni.usd.get_context().get_stage()
+
+# Load the scene from USDZ file
+scene_path = '/home/madhavai/isaacsim/isaac-sim-standalone-5.1.0-linux-x86_64/visual-servoing-rollout/output_scene.usdz'
+world_prim = stage.DefinePrim("/World", "Xform")
+world_prim.GetReferences().AddReference(scene_path, "/World")
+print(f"Loaded /World from USDZ as reference")
+for _ in range(20):
+    simulation_app.update()
 
 # Add Ground Plane
 GroundPlane(prim_path="/World/GroundPlane", z_position=0)
 
-# Add Light Source
-stage = omni.usd.get_context().get_stage()
 distantLight = UsdLux.DistantLight.Define(stage, Sdf.Path("/DistantLight"))
-distantLight.CreateIntensityAttr(300)
+distantLight.CreateIntensityAttr(1000)
+domeLight = UsdLux.DomeLight.Define(stage, Sdf.Path("/DomeLight"))
+domeLight.CreateIntensityAttr(500)
 
+
+camera_initial_position = np.array([-2.0, -0.2, 0.3])
 camera = Camera(
     prim_path="/World/camera",
-    position=np.array([3.0, 0.0, 2.0]),
+    position=camera_initial_position,
     frequency=20,
     resolution=(1920, 1080),
-    orientation=rot_utils.euler_angles_to_quats(np.array([0, -90, 0]), degrees=True),
+    orientation=rot_utils_np.euler_angles_to_quats(np.array([0, 0, 10]), degrees=True),
 )
-CAMERA_INTRINSICS = []
-fx = 1000.0
-fy = 1000.0
-cx = 1920 / 2
-cy = 1080 / 2
-K = np.array([[fx, 0.0, cx], [0.0, fy, cy], [0.0, 0.0, 1.0]])
-CAMERA_INTRINSICS = K
 
 my_world = World(stage_units_in_meters=1.0)
 
@@ -56,91 +73,116 @@ camera_marker = my_world.scene.add(
     VisualCuboid(
         prim_path="/World/camera_marker",
         name="camera_marker",
-        position=np.array([3.0, 0.0, 2.0]),
+        position=camera_initial_position,
         size=0.15,
         color=np.array([255, 0, 0]),
     )
 )
 
 my_world.reset()
+my_world.step(render=False)
+for _ in range(5):
+    simulation_app.update()
 camera.initialize()
 
 
-circle_center = np.array([0.0, 0.0, 2.0])
-camera_pos = np.array([3.0, 0.0, 2.0], dtype=np.float64)
-
 def get_image():
-    return camera.get_color_rgba()
+    return camera.get_rgb()
 
-# this will be jeff's API
-def get_target_point():
-    pass
+def get_depth():
+    return camera.get_depth()
 
-def image_to_cam(image_point):
-    # image to cam transform
-    pass
+# this will be jeff's API. For now, hardcode the target points
+target_points = [
+    np.array([0.1, -0.4, 0.1]),
+    np.array([0.1, -0.3, 0.1]),
+    np.array([0.1, -0.2, 0.1]),
+    np.array([0.1, -0.1, 0.1]),
+    np.array([0.1, 0.0, 0.1]),
+    ]
+def get_target_point(image, i):
+    return target_points[i]
 
-def cam_to_world(cam_point):
-    # cam to world transform
-    pass
+def image_to_world(image_point):
+    """
+    image_point (1, 2) point in image coords
 
-# start the simulator
-for i in range(100):
-    # capture camera image
-    image = get_image()
+    returns (1, 3) point in world coords
+    """
+    depth_map = get_depth()
+    depth = depth_map[image_point[1], image_point[0]]
+    return camera.get_world_points_from_image_coords(
+        image_point,
+        depth
+    )
 
-    # jeff's code here
-    grasp_point_image = get_target_point()
+# start the simulation loop
+STEP_SIZE = 0.1
+IMAGES = []
+
+
+print("Step 0 - Initial image")
+my_world.step(render=True)
+for _ in range(5):
+    simulation_app.update() 
+image = get_image()
+IMAGES.append(image)
+
+for i in range(5):
+    print(f"Step {i+1}")
+
+    grasp_point_image = get_target_point(image, i)
     
-    # get point in cam frame
-    grasp_point_cam = image_to_cam(grasp_point_image)
-    # this will be used to ensure camera pointed towards target point
-    grasp_point_world = cam_to_world(grasp_point_cam)
+    # get point world frame. NOTE: uncomment this when the target points are in image coords
+    grasp_point_world = image_to_world(grasp_point_image)
+    # grasp_point_world = grasp_point_image
+    # get current camera pos
+    camera_pos_world, camera_quat_world = camera.get_world_pose()
     
-    # get direction in cam frame
-    direction = np.linalg.inv(K) @ grasp_point_cam
+    direction = grasp_point_world - camera_pos_world
     direction = direction / np.linalg.norm(direction)
     
-    # convert direction to world frame
-    direction = cam_to_world(grasp_point_cam)
-    
-    # take a step in the direction
-    camera_pos = camera_pos + direction
-    camera_x, camera_y, camera_z = camera_pos
-    
-    camera_prim = stage.GetPrimAtPath("/World/camera")
-    xform = UsdGeom.Xformable(camera_prim)
-    translate_op = None
-    for op in xform.GetOrderedXformOps():
-        if op.GetOpName() == 'xformOp:translate':
-            translate_op = op
-            break
-    if translate_op is None:
-        translate_op = xform.AddTranslateOp()
-    translate_op.Set(Gf.Vec3d(camera_x, camera_y, camera_z))
-    
-    # always point camera toward current target point in world
-    look_vec = grasp_point_world - np.array([camera_x, camera_y, camera_z])
-    look_vec = look_vec / (np.linalg.norm(look_vec) + 1e-8)
-    yaw = np.arctan2(look_vec[1], look_vec[0]) * 180.0 / np.pi
-    
-    # Convert to quaternion
-    quat = rot_utils.euler_angles_to_quats(np.array([0, yaw, 0]), degrees=True)
-    
-    # Update rotation
-    rotate_op = None
-    for op in xform.GetOrderedXformOps():
-        if op.GetOpName() == 'xformOp:orient':
-            rotate_op = op
-            break
-    if rotate_op is None:
-        rotate_op = xform.AddOrientOp(UsdGeom.XformOp.PrecisionDouble, UsdGeom.XformOp.OpTypeRotateQuat)
-    rotate_op.Set(Gf.Quatd(quat[0], quat[1], quat[2], quat[3]))
-    
-    # Update visual marker position to match camera position
-    camera_marker.set_world_pose(position=np.array([camera_x, camera_y, camera_z]))
-    
-    my_world.step(render=True)
+    # move the camera in the direction of the target point while keeping it pointed towards the target point
 
-# shutdown the simulator automatically
+    camera_pos = camera_pos_world + direction * STEP_SIZE
+    camera.set_world_pose(position=camera_pos, orientation=camera_quat_world)
+    set_camera_view(camera_pos, grasp_point_world, '/World/camera')
+
+    # Update visual marker position to match camera position
+    camera_marker.set_world_pose(position=camera_pos, orientation=camera_quat_world)
+
+    # Step the world to render the new camera position
+    my_world.step(render=True)
+    # Allow render to complete before capturing image
+    for _ in range(5):
+        simulation_app.update()
+    
+    # Capture camera image after rendering
+    image = get_image()
+    IMAGES.append(image)
+
+# save images to an np array
+valid_images = []
+for image in IMAGES:
+    if image is None:
+        continue
+    print(f"Image shape: {image.shape}")
+    valid_images.append(image)
+images_np = np.array(valid_images)
+print("Images shape: ", images_np.shape)
+np.save('output/camera_images.npy', images_np)
+print(f"Saved images to output/camera_images.npy")
+
+# Keep the simulation running for visualization
+# Use update() to process window events and keep rendering
+try:
+    while simulation_app.is_running():
+        # Update the simulation app to process window events and keep rendering
+        simulation_app.update()
+        # Optionally step the world if you want physics to continue
+        # my_world.step(render=True)
+except KeyboardInterrupt:
+    print("\nShutting down simulation...")
+
+# shutdown the simulator
 simulation_app.close()
