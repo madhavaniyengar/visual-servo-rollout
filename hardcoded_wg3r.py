@@ -44,7 +44,11 @@ from isaacsim.core.utils.viewports import set_camera_view
 # Create a fresh new stage first to avoid render product conflicts
 
 # CAMERA_QUAT = rot_utils_np.euler_angles_to_quats(np.array([0, 0, 90]), degrees=True)
-CAMERA_QUAT = rot_utils_np.euler_angles_to_quats(np.array([90, 0, 0]), degrees=True)
+# Desired orientation: 90 degrees roll (X), 0 pitch (Y), 0 yaw (Z) in world coordinates
+DESIRED_EULER = np.array([90, 0, 0])  # Roll, Pitch, Yaw in degrees
+CAMERA_QUAT = rot_utils_np.euler_angles_to_quats(DESIRED_EULER, degrees=True)
+# print(f"Desired camera Euler angles (roll, pitch, yaw): {DESIRED_EULER}")
+# print(f"Desired camera quaternion (w, x, y, z): {CAMERA_QUAT}")
 
 omni.usd.get_context().new_stage()
 for _ in range(10):
@@ -61,73 +65,6 @@ print(f"Loaded /World from USDZ as reference")
 for _ in range(20):
     simulation_app.update()
 
-# Search through the prim tree to find Box_0_0_0 and get its world pose
-def find_prim_by_name(stage, target_name):
-    """Traverse the prim tree to find a prim by name and print hierarchy"""
-    found_prim = None
-    for prim in stage.Traverse():
-        if prim.GetName() == target_name:
-            found_prim = prim
-            print(f"Found prim '{target_name}' at path: {prim.GetPath()}")
-            
-            # Print the hierarchy path
-            parent = prim.GetParent()
-            hierarchy = [prim.GetName()]
-            while parent and parent.GetPath() != Sdf.Path("/"):
-                hierarchy.insert(0, parent.GetName())
-                parent = parent.GetParent()
-            print(f"Hierarchy: /{'/'.join(hierarchy)}")
-            break
-    return found_prim
-
-def get_prim_world_pose(prim):
-    """Get the world pose (position and orientation) of a prim"""
-    if not prim:
-        return None, None
-    
-    xformable = UsdGeom.Xformable(prim)
-    if not xformable:
-        print(f"Prim {prim.GetPath()} is not xformable")
-        return None, None
-    
-    # Get world transform matrix
-    world_transform = xformable.ComputeLocalToWorldTransform(Usd.TimeCode.Default())
-    
-    # Extract translation (position)
-    translation = world_transform.ExtractTranslation()
-    position = np.array([translation[0], translation[1], translation[2]])
-    
-    # Extract rotation as quaternion
-    rotation = world_transform.ExtractRotation()
-    quat = rotation.GetQuat()
-    # Gf.Quatd is (w, x, y, z) format
-    real = quat.GetReal()
-    imag = quat.GetImaginary()
-    orientation = np.array([real, imag[0], imag[1], imag[2]])  # (w, x, y, z)
-    
-    return position, orientation
-
-# Find and print Box_0_0_0 pose
-box_prim = find_prim_by_name(stage, "Box_0_0_0")
-if box_prim:
-    box_position, box_orientation = get_prim_world_pose(box_prim)
-    print(f"\n=== Box_0_0_0 World Pose ===")
-    print(f"Position (x, y, z): {box_position}")
-    print(f"Orientation (w, x, y, z): {box_orientation}")
-    
-    # Also print Euler angles for easier interpretation
-    if box_orientation is not None:
-        euler = rot_utils_np.quats_to_euler_angles(box_orientation, degrees=True)
-        print(f"Orientation (Euler degrees - roll, pitch, yaw): {euler}")
-    print(f"=============================\n")
-else:
-    print("WARNING: Could not find prim 'Box_0_0_0' in the scene!")
-    print("Available prims in scene:")
-    for prim in stage.Traverse():
-        print(f"  - {prim.GetPath()} ({prim.GetTypeName()})")
-
-breakpoint()
-
 # Add Ground Plane
 # GroundPlane(prim_path="/World/GroundPlane", z_position=0)
 
@@ -139,16 +76,11 @@ domeLight.CreateIntensityAttr(500)
 
 # camera_initial_position = np.array([-2.0, -0.2, 0.3])
 # camera_initial_position = np.array([0.1, -0.5, 0.5])
-camera_initial_position = np.array([0.05, -0.4, -0.15])
-camera = Camera(
-    prim_path="/World/camera",
-    position=camera_initial_position,
-    frequency=20,
-    resolution=(1920, 1080),
-    orientation=CAMERA_QUAT,
-)
+camera_initial_position = np.array([0.05, -0.4, 0.15])
+
 
 my_world = World(stage_units_in_meters=1.0)
+my_world.reset()
 
 # camera_marker = my_world.scene.add(
 #     VisualCuboid(
@@ -159,12 +91,19 @@ my_world = World(stage_units_in_meters=1.0)
 #         color=np.array([255, 0, 0]),
 #     )
 # )
-
-my_world.reset()
-my_world.step(render=False)
-for _ in range(5):
-    simulation_app.update()
+camera = Camera(
+    prim_path="/World/camera",
+    position=camera_initial_position,
+    frequency=20,
+    resolution=(1920, 1080),
+    orientation=CAMERA_QUAT,
+)
 camera.initialize()
+camera.set_clipping_range(0.1, 100.0)
+my_world.step(render=False)
+for _ in range(25):
+    simulation_app.update()
+
 camera.add_distance_to_image_plane_to_frame()
 
 # Set focal length to fixed value
@@ -173,9 +112,34 @@ camera.set_focal_length(focal_length)
 camera.set_horizontal_aperture(5.23)
 camera.set_vertical_aperture(5.23 / (1920/1080))
 
-# Get the initial camera orientation AFTER initialization - this is the correct orientation in "world" axes
-_, CAMERA_ORIENTATION = camera.get_world_pose()
-print(f"Initial camera orientation (world axes): {CAMERA_ORIENTATION}")
+# IMPORTANT: Set the camera pose with camera_axes="usd" to prevent auto-rotation
+# This ensures the camera respects world coordinates (90, 0, 0) without Isaac Sim's default +Y up rotation
+camera.set_world_pose(position=camera_initial_position, orientation=CAMERA_QUAT, camera_axes="usd")
+
+def opencv_to_opengl_vector(vector_opencv):
+    """
+    Convert a vector from OpenCV camera coordinate frame to OpenGL camera coordinate frame.
+    
+    Args:
+        vector_opencv: numpy array of shape (3,) or (N, 3) in OpenCV camera coordinates
+        
+    Returns:
+        numpy array of same shape in OpenGL camera coordinates
+    """
+    # Transformation matrix: flip Y and Z axes
+    T = np.array([
+        [1,  0,  0],
+        [0, -1,  0],
+        [0,  0, -1]
+    ])
+    
+    if vector_opencv.ndim == 1:
+        # Single vector
+        return T @ vector_opencv
+    else:
+        # Batch of vectors
+        return (T @ vector_opencv.T).T
+
 
 model = GeometricServoing(
         annotation_ndc=torch.as_tensor([0., 1.]),
@@ -214,7 +178,8 @@ def get_direction(left_img, left_depth,cam2world):
             )
     )
     assert direction_world.shape[0] == 1, "Only one vector is expected??"
-    return direction_world.squeeze()[:3].cpu().numpy()
+    direction_opengl = opencv_to_opengl_vector(direction_world.squeeze()[:3].cpu().numpy())
+    return direction_opengl
 
 
 def get_cam2world():
@@ -278,6 +243,15 @@ IMAGES.append(image)
 
 # initialize_camera_pose_hardcoded()
 
+# try:
+#     while simulation_app.is_running():
+#         # Update the simulation app to process window events and keep rendering
+#         simulation_app.update()
+#         # Optionally step the world if you want physics to continue
+#         # my_world.step(render=True)
+# except KeyboardInterrupt:
+#     print("\nShutting down simulation...")
+
 
 for i in range(NUM_STEPS):
     print(f"Step {i+1}")
@@ -304,41 +278,27 @@ for i in range(NUM_STEPS):
     # Always pass orientation to maintain camera direction
     print(f"Camera position: {camera_pos_world}")
     print(f"Direction: {direction}")
-    camera.set_world_pose(position=camera_pos, orientation=CAMERA_ORIENTATION)
+    camera.set_world_pose(position=camera_pos, orientation=CAMERA_QUAT, camera_axes="usd")
 
     # Update visual marker position to match camera position
     # camera_marker.set_world_pose(position=camera_pos)
 
     # Step the world to render the new camera position
-    image = my_world.step(render=True)
+    my_world.step(render=True)
     for _ in range(10):
         simulation_app.update()
     # Allow render to complete before capturing image
+    image = get_image()
     IMAGES.append(image)
 
-# save images to an np array
-valid_images = []
-for image in IMAGES:
-    if image is None:
-        continue
-    print(f"Image shape: {image.shape}")
-    valid_images.append(image)
-images_np = np.array(valid_images)
-print("Images shape: ", images_np.shape)
-os.makedirs('output', exist_ok=True)
-np.save('output/camera_images.npy', images_np)
-print(f"Saved images to output/camera_images.npy")
+# save all images to a video
+video_path = "output/camera_images.mp4"
+imageio.mimsave(video_path, IMAGES[1:], fps=1)
+print(f"Saved video to {video_path}")
 
 # Keep the simulation running for visualization
 # Use update() to process window events and keep rendering
-try:
-    while simulation_app.is_running():
-        # Update the simulation app to process window events and keep rendering
-        simulation_app.update()
-        # Optionally step the world if you want physics to continue
-        # my_world.step(render=True)
-except KeyboardInterrupt:
-    print("\nShutting down simulation...")
+
 
 # shutdown the simulator
 simulation_app.close()
