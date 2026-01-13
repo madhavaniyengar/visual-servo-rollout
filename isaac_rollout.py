@@ -1,45 +1,13 @@
 from dataclasses import dataclass
 import pdb
 
+import numpy as np
 import cv2
 import tyro
 from isaacsim import SimulationApp
 
 import transform_utils as tu
-# @dataclass 
-# class Image:
-#     image: np.ndarray
-#     path: str
-
-# @dataclass 
-# class Step:
-#     images: List[Image]
-
-# @dataclass
-# class Observation:
-#     left: Image
-#     right: Image
-#     depth: np.ndarray
-#
-#     def stereo_sample(self):
-#         return StereoSample(
-#             left.image,
-#             right.image,
-#             depth,
-#             None,
-#             None
-#         )
-
-# @dataclass 
-# class Action:
-#     direction: np.ndarray
-#     current_pose: np.ndarray
-
-# @dataclass 
-# class ObsAction:
-#     obs: Observation
-#     action: Action
-
+from rollout_datastructs import Image, Step
 # class Arrow:
 #     def __init__(self, origin: np.ndarray, direction: np.ndarray, length: float):
 #         self.origin = np.ndarray
@@ -50,19 +18,22 @@ import transform_utils as tu
 #         self.debug_line.clear_lines()
 
 class IsaacSimWorld:
-    def __init__(self, stage, world, sim_app, external_camera):
+    def __init__(self, stage, world, sim_app, external_camera, robot):
         self.stage = stage
         self.sim_app = sim_app
         self.world = world
         self.external_camera = external_camera
         # self.arrow = arrow
-        # self.robot = robot
+        self.robot = robot
 
 @dataclass 
 class WorldConfig:
-    scene_path : str ='output_scene.usdz'
+    scene_path : str ='visual-servo-rollout/output_scene.usdz'
     e_cam_init_pos: tuple[float, float, float] = (0.15, -0.75, 0.35)
     e_cam_init_rot: tuple[float, float, float] = (70, 0, 0)
+
+    robot_init_pose: tuple[float, float, float] = (0.15, -0.4, 0.15) 
+    robot_init_rot: tuple[float, float, float] = (-90.0, 0., 0.)
     # robot init position: List[float] = 
     # robot init rotxyz : List[float] = 
 
@@ -72,7 +43,10 @@ def setup_isaacsim(config) -> IsaacSimWorld:
         "width": 1920,
         "height": 1080,
     })
-    global omni, rot_utils_np, rot_utils, World, GroundPlane, VisualCuboid, VisualCylinder, VisualCone, Camera, Sdf, UsdLux, UsdGeom, Gf, Usd, set_camera_view, _debug_draw, carb
+    global omni, rot_utils_np, rot_utils
+    global World, GroundPlane, VisualCuboid, VisualCylinder, VisualCone, Camera
+    global Sdf, UsdLux, UsdGeom, Gf, Usd
+    global set_camera_view, _debug_draw, carb, robo
 
     import omni.usd
     import isaacsim.core.utils.numpy.rotations as rot_utils_np
@@ -85,6 +59,8 @@ def setup_isaacsim(config) -> IsaacSimWorld:
     from isaacsim.core.utils.viewports import set_camera_view
     from isaacsim.util.debug_draw import _debug_draw
     import carb
+
+    import robot as robo
 
     omni.usd.get_context().new_stage()
     stage = omni.usd.get_context().get_stage()
@@ -115,12 +91,12 @@ def setup_isaacsim(config) -> IsaacSimWorld:
         camera_axes="usd"
     )
     my_world = World(stage_units_in_meters=1.0)
-    # robot = Robot()
+    robot = robo.Robot("robot", "/World", config.robot_init_pose, config.robot_init_rot, lambda _ : np.array([0., 0., 1.]))
     # arrow = Arrow()
     my_world.reset()
 
     return IsaacSimWorld(
-        stage, my_world, simulation_app, external_camera
+        stage, my_world, simulation_app, external_camera, robot
     )
 
 def step_seriously(world):
@@ -128,15 +104,17 @@ def step_seriously(world):
     for _ in range(10):
         world.sim_app.update()
 
-# def step_sim(isaacsimworld) -> Step
-#     obs_action = action_loop_once(world.robot) # cute idea later: use getattr to do something like: action_loop_once(world.robot, "get_obs", 
-#                                         # "next_direction", "move" and have as a protocol that each of these functions' outputs can be piped to each other)
-#                                         # I could add decorators to pass through certain parameters (leave them untouched) and to return them
-#     update_arrow(obs_action, world.arrow)
-#     external_image = get_image(world.external_camera)
-#     step_seriously()
-#
-#     return Step([obs_action.observation.left, external_image])
+def get_image(camera) -> Image:
+   return Image(camera.get_rgb(), camera.prim_path)
+
+def step_sim(world) -> Step:
+    obs_action = robo.action_loop_once(world.robot)
+    # so, this should actually also move the body too
+    # update_arrow(obs_action, world.arrow)
+    external_image = get_image(world.external_camera)
+    step_seriously(world)
+
+    return Step([obs_action.obs.left, external_image])
 
 # def videoify(steps: List[Step]):
 #     def _videoify(buffers, Step):
@@ -153,22 +131,22 @@ def step_seriously(world):
 #         turn buf into an mp4 using the prim path as the path
 
 def main(config):
+
     world = setup_isaacsim(config)
     step_seriously(world)
-    image = world.external_camera.get_rgb()
+    image = cv2.cvtColor(world.external_camera.get_rgb(), cv2.COLOR_RGB2BGR)
     cv2.imwrite("test_image.png", image)
+    step = step_sim(world)
+    observed_image = cv2.cvtColor(step.images[0].image, cv2.COLOR_RGB2BGR)
+    cv2.imwrite("observed_image.png", observed_image)
     world.sim_app.close()
-
     # all_obs = []
     # for step in range(num_steps):
     #     obs_list = step_sim(world)
     #     all_obs.append(obs_list)
-    #
-    # videoify(all_obs)
 
+    world.sim_app.close()
 
 if __name__ == "__main__":
     config = tyro.cli(WorldConfig)
     main(config)
-    # 2026-01-09T23:22:35Z [18,800ms] [Warning] [omni.usd] Warning: in _ReportErrors at line 3172 of /builds/omniverse/usd-ci/USD/pxr/usd/usd/stage.cpp -- In </World>: Could not open asset @visual-servo-rollout/output_scene.usdz@ for reference introduced by @anon:0x239a36d0:World1.usd@</World>. (recomposing stage on stage @anon:0x239a36d0:World1.usd@ <0x12aa0b60>)
-

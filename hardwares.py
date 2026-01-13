@@ -8,7 +8,7 @@ import omni.replicator.core as rep
 from omni.isaac.core.utils.stage import get_current_stage
 
 from isaacsim.sensors.camera import Camera
-from isaac_utils import create_empty, setup_camera, set_transform, setup_render_product
+from datagen2_isaacsim.isaac_utils import create_empty, setup_camera, set_transform, setup_render_product
 
 
 @dataclass
