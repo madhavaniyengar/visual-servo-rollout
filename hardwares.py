@@ -6,9 +6,11 @@ from dataclasses import dataclass
 from pxr import Gf, UsdGeom
 import omni.replicator.core as rep
 from omni.isaac.core.utils.stage import get_current_stage
-
+import isaacsim.core.utils.numpy.rotations as rot_utils_np
 from isaacsim.sensors.camera import Camera
-from isaac_utils import create_empty, setup_camera, set_transform, setup_render_product
+from datagen2_isaacsim.isaac_utils import create_empty, setup_camera, set_transform, setup_render_product
+
+from rollout_datastructs import PrimObj
 
 
 @dataclass
@@ -210,7 +212,7 @@ class OrbbecGemini2:
         })
 
 
-class ZedMini:
+class ZedMini(PrimObj):
     """Zed Mini stereo camera simulation using Isaac Sim Camera API.
 
     Specs:
@@ -226,12 +228,13 @@ class ZedMini:
         self.rgb_width = rgb_width
         self.rgb_height = rgb_height
         self.baseline = 0.063  # 63 mm
-        self.focal_length = 2.8  # mm
+        self.focal_length = 0.28  # cm
         self.sensor_width_mm = 5.23  # 1/3" sensor width to match 102 deg FOV
 
         # Create rig root
         self.prim_path = f"{parent_path}/{name}"
         self.prim = create_empty(name, parent_path)
+        super().__init__(self.prim_path, self.prim)
 
         # Left RGB camera
         self.left_camera_path = f"{self.prim_path}/{name}_left"
@@ -239,7 +242,12 @@ class ZedMini:
             prim_path=self.left_camera_path,
             resolution=(self.rgb_width, self.rgb_height),
         )
-        self._set_camera_transform(self.left_camera_path, -self.baseline * 0.5)
+        self.left_camera.set_local_pose(
+            [-self.baseline * 0.5, 0, 0],
+            rot_utils_np.euler_angles_to_quats([90, 0, 0], degrees=True),
+            camera_axes="usd"
+        )
+
 
         # Right RGB camera
         self.right_camera_path = f"{self.prim_path}/{name}_right"
@@ -247,7 +255,11 @@ class ZedMini:
             prim_path=self.right_camera_path,
             resolution=(self.rgb_width, self.rgb_height),
         )
-        self._set_camera_transform(self.right_camera_path, self.baseline * 0.5)
+        self.right_camera.set_local_pose(
+            [self.baseline * 0.5, 0, 0],
+            rot_utils_np.euler_angles_to_quats([90, 0, 0], degrees=True),
+            camera_axes="usd"
+        )
 
         # Set optical parameters on both cameras
         self._set_camera_optics()
@@ -267,6 +279,8 @@ class ZedMini:
         """Set focal length and aperture for both cameras to match Zed Mini specs."""
         self.left_camera.set_focal_length(self.focal_length)
         self.right_camera.set_focal_length(self.focal_length)
+        self.left_camera.set_clipping_range(0.001, 10000.0)
+        self.right_camera.set_clipping_range(0.001, 10000.0)
 
         # Set horizontal/vertical aperture via USD (Camera class doesn't expose this)
         stage = get_current_stage()
