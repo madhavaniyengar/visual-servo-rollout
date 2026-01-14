@@ -2,16 +2,19 @@ import os
 import threading
 from dataclasses import dataclass
 import pdb
+from typing import Callable, Optional
 
 import numpy as np
 import cv2
 import tyro
 import imageio
 from isaacsim import SimulationApp
+_debug_draw = None # actually an import, see setup_isaacsim()
 
 import transform_utils as tu
 from rollout_datastructs import Image, Step
-_debug_draw = None
+from rollout_utils import KeyboardFlags
+
 
 # class Arrow:
 #     def __init__(self, origin: np.ndarray, direction: np.ndarray, length: float):
@@ -34,10 +37,11 @@ class IsaacSimWorld:
 @dataclass 
 class WorldConfig:
     scene_path : str ='visual-servo-rollout/output_scene.usdz'
+    sim_steps: int = 10
     e_cam_init_pos: tuple[float, float, float] = (0.15, -0.75, 0.35)
     e_cam_init_rot: tuple[float, float, float] = (70, 0, 0)
 
-    robot_init_pose: tuple[float, float, float] = (0.15, -0.4, 0.15) 
+    robot_init_pose: tuple[float, float, float] = (0.15, -0.2, 0.15) 
     robot_init_rot: tuple[float, float, float] = (0., 0., 90.)
 
     debug: bool = False
@@ -107,16 +111,6 @@ def setup_isaacsim(config) -> IsaacSimWorld:
         stage, my_world, simulation_app, external_camera, robot#, arrow
     )
 
-def input_flag():
-    flag = threading.Event()
-    threading.Thread(target=lambda: (input(), flag.set()), daemon=True).start()
-    return flag
-
-def hog(world):
-    key_pressed = input_flag()
-    while world.sim_app.is_running() and not key_pressed.is_set():
-        world.sim_app.update()
-
 def step_seriously(world):
     world.world.step(render=True)
     for _ in range(10):
@@ -125,8 +119,13 @@ def step_seriously(world):
 def get_image(camera) -> Image:
    return Image(camera.get_rgb(), camera.prim_path)
 
-def step_sim(world, continue_on_click: bool = False) -> Step:
-    hog(world) if continue_on_click else None
+def hog(sim_app, keyboard_input):
+    while sim_app.is_running() and not keyboard_input.step_flag() and not keyboard_input.quit_flag():
+        sim_app.update()
+    keyboard_input.clear_step_flag()
+
+def step_sim(world, keyboard_input: Optional[KeyboardFlags]) -> Step:
+    hog(world.sim_app, keyboard_input) if keyboard_input else None
     obs_action = robo.action_loop_once(world.robot)
     # update_arrow(obs_action, world.arrow)
     external_image = get_image(world.external_camera)
@@ -153,8 +152,10 @@ def main(config):
     world = setup_isaacsim(config)
     step_seriously(world)
     imgs = []
-    for i in range(10):
-        step = step_sim(world, continue_on_click=config.debug)
+    keyboard_input = KeyboardFlags() if config.debug else None
+    countdown = (True for _ in range(config.sim_steps))
+    while (not keyboard_input.quit_flag()) if config.debug else next(countdown, False):
+        step = step_sim(world, keyboard_input)
         imgs.append(step.images[0].image)
     imageio.mimwrite("test_video.mp4", imgs, fps=2)
 

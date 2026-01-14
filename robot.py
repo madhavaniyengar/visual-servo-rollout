@@ -21,7 +21,7 @@ class Robot:
         # the rotation at runtime... Might be time to re learn how usd works
 
         self.camera = ZedMini("camera", parent_path=self.path)
-        # set_transform(self.camera.prim, rotation=(0., 0., -90.))
+        set_transform(self.camera.prim, rotation=(0., 0., -90.))
         self.body = VisualCuboid(
             prim_path=f"{self.path}/body",
             name="camera_body",
