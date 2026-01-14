@@ -1,4 +1,5 @@
 import os
+import threading
 from dataclasses import dataclass
 import pdb
 
@@ -37,11 +38,13 @@ class WorldConfig:
     e_cam_init_rot: tuple[float, float, float] = (70, 0, 0)
 
     robot_init_pose: tuple[float, float, float] = (0.15, -0.4, 0.15) 
-    robot_init_rot: tuple[float, float, float] = (0., 0., 0.)
+    robot_init_rot: tuple[float, float, float] = (0., 0., 90.)
+
+    debug: bool = False
 
 def setup_isaacsim(config) -> IsaacSimWorld:
     simulation_app = SimulationApp({
-        "headless": True,
+        "headless": False,
         "width": 1920,
         "height": 1080,
     })
@@ -97,12 +100,22 @@ def setup_isaacsim(config) -> IsaacSimWorld:
     )
     my_world = World(stage_units_in_meters=1.0)
     my_world.reset()
-    robot = robo.Robot("robot", "/World", config.robot_init_pose, config.robot_init_rot, lambda _ : np.array([0., 0.05, 0.]))
+    robot = robo.Robot("robot", "/World", config.robot_init_pose, config.robot_init_rot, lambda _ : np.array([0.05, 0., 0.]))
     # arrow = Arrow(config.robot_init_pose, [1.0, 0., 0.], 1.)
 
     return IsaacSimWorld(
         stage, my_world, simulation_app, external_camera, robot#, arrow
     )
+
+def input_flag():
+    flag = threading.Event()
+    threading.Thread(target=lambda: (input(), flag.set()), daemon=True).start()
+    return flag
+
+def hog(world):
+    key_pressed = input_flag()
+    while world.sim_app.is_running() and not key_pressed.is_set():
+        world.sim_app.update()
 
 def step_seriously(world):
     world.world.step(render=True)
@@ -112,9 +125,9 @@ def step_seriously(world):
 def get_image(camera) -> Image:
    return Image(camera.get_rgb(), camera.prim_path)
 
-def step_sim(world) -> Step:
+def step_sim(world, continue_on_click: bool = False) -> Step:
+    hog(world) if continue_on_click else None
     obs_action = robo.action_loop_once(world.robot)
-    # so, this should actually also move the body too
     # update_arrow(obs_action, world.arrow)
     external_image = get_image(world.external_camera)
     step_seriously(world)
@@ -141,7 +154,7 @@ def main(config):
     step_seriously(world)
     imgs = []
     for i in range(10):
-        step = step_sim(world)
+        step = step_sim(world, continue_on_click=config.debug)
         imgs.append(step.images[0].image)
     imageio.mimwrite("test_video.mp4", imgs, fps=2)
 
