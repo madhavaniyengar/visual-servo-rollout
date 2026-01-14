@@ -17,14 +17,15 @@ class Robot:
         self.path = f"{parent_path}/{name}"
         self.empty = create_empty(name, parent_path)
         self.next_direction_model = offset_model
-        set_transform(self.empty, init_translation, init_rotation)
+        set_transform(self.empty, init_translation, init_rotation) # when init_rotation is non identity, it might be problematic to change
+        # the rotation at runtime... Might be time to re learn how usd works
 
         self.camera = ZedMini("camera", parent_path=self.path)
-        set_transform(self.camera.prim, rotation=[90, 0, 0])
+        # set_transform(self.camera.prim, rotation=(0., 0., -90.))
         self.body = VisualCuboid(
             prim_path=f"{self.path}/body",
             name="camera_body",
-            size=0.05, # xform rel to parent is identity
+            size=0.025, # xform rel to parent is identity
             color=np.array([0, 255, 0]),
         )
 
@@ -55,7 +56,8 @@ def next_direction(robot, observation: Observation) -> np.ndarray:
     return direction
 
 def move(action, robot):
-    robot_new_pose = transform_utils.add_translation(action, get_pose(robot))
+    cur_pose = get_pose(robot)
+    robot_new_pose = transform_utils.add_translation(action, cur_pose)
     set_transform(
             robot.empty,
             transform_utils.get_translation(robot_new_pose),

@@ -1,13 +1,17 @@
+import os
 from dataclasses import dataclass
 import pdb
 
 import numpy as np
 import cv2
 import tyro
+import imageio
 from isaacsim import SimulationApp
 
 import transform_utils as tu
 from rollout_datastructs import Image, Step
+_debug_draw = None
+
 # class Arrow:
 #     def __init__(self, origin: np.ndarray, direction: np.ndarray, length: float):
 #         self.origin = np.ndarray
@@ -33,13 +37,11 @@ class WorldConfig:
     e_cam_init_rot: tuple[float, float, float] = (70, 0, 0)
 
     robot_init_pose: tuple[float, float, float] = (0.15, -0.4, 0.15) 
-    robot_init_rot: tuple[float, float, float] = (-90.0, 0., 0.)
-    # robot init position: List[float] = 
-    # robot init rotxyz : List[float] = 
+    robot_init_rot: tuple[float, float, float] = (0., 0., 0.)
 
 def setup_isaacsim(config) -> IsaacSimWorld:
     simulation_app = SimulationApp({
-        "headless": False,
+        "headless": True,
         "width": 1920,
         "height": 1080,
     })
@@ -47,6 +49,7 @@ def setup_isaacsim(config) -> IsaacSimWorld:
     global World, GroundPlane, VisualCuboid, VisualCylinder, VisualCone, Camera
     global Sdf, UsdLux, UsdGeom, Gf, Usd
     global set_camera_view, _debug_draw, carb, robo
+    global rep
 
     import omni.usd
     import isaacsim.core.utils.numpy.rotations as rot_utils_np
@@ -58,6 +61,7 @@ def setup_isaacsim(config) -> IsaacSimWorld:
     from pxr import Sdf, UsdLux, UsdGeom, Gf, Usd
     from isaacsim.core.utils.viewports import set_camera_view
     from isaacsim.util.debug_draw import _debug_draw
+    import omni.replicator.core as rep
     import carb
 
     import robot as robo
@@ -65,6 +69,7 @@ def setup_isaacsim(config) -> IsaacSimWorld:
     omni.usd.get_context().new_stage()
     stage = omni.usd.get_context().get_stage()
     world_prim = stage.DefinePrim("/World", "Xform")
+    assert os.path.exists(config.scene_path), f"{config.scene_path} does not exist!"
     world_prim.GetReferences().AddReference(config.scene_path, "/World")
     distantLight = UsdLux.DistantLight.Define(stage, Sdf.Path("/DistantLight"))
     distantLight.CreateIntensityAttr(1000)
@@ -91,12 +96,12 @@ def setup_isaacsim(config) -> IsaacSimWorld:
         camera_axes="usd"
     )
     my_world = World(stage_units_in_meters=1.0)
-    robot = robo.Robot("robot", "/World", config.robot_init_pose, config.robot_init_rot, lambda _ : np.array([0., 0., 1.]))
-    # arrow = Arrow()
     my_world.reset()
+    robot = robo.Robot("robot", "/World", config.robot_init_pose, config.robot_init_rot, lambda _ : np.array([0., 0.05, 0.]))
+    # arrow = Arrow(config.robot_init_pose, [1.0, 0., 0.], 1.)
 
     return IsaacSimWorld(
-        stage, my_world, simulation_app, external_camera, robot
+        stage, my_world, simulation_app, external_camera, robot#, arrow
     )
 
 def step_seriously(world):
@@ -134,11 +139,21 @@ def main(config):
 
     world = setup_isaacsim(config)
     step_seriously(world)
-    image = cv2.cvtColor(world.external_camera.get_rgb(), cv2.COLOR_RGB2BGR)
-    cv2.imwrite("test_image.png", image)
-    step = step_sim(world)
-    observed_image = cv2.cvtColor(step.images[0].image, cv2.COLOR_RGB2BGR)
-    cv2.imwrite("observed_image.png", observed_image)
+    imgs = []
+    for i in range(10):
+        step = step_sim(world)
+        imgs.append(step.images[0].image)
+    imageio.mimwrite("test_video.mp4", imgs, fps=2)
+
+
+    # try:
+    #     while world.sim_app.is_running():
+    #         # Update the simulation app to pro
+    #         world.sim_app.update()
+    #         # Optionally step the world if you
+    #     # my_world.step(render=True)
+    # except KeyboardInterrupt:
+    #     print("\nShutting down simulation...")
     world.sim_app.close()
     # all_obs = []
     # for step in range(num_steps):
