@@ -1,5 +1,6 @@
 from scipy.spatial.transform import Rotation as R
 import numpy as np
+import torch
 
 def add_translation(vec, pose_matrix):
     pose_matrix = pose_matrix.copy()

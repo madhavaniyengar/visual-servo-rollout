@@ -1,8 +1,11 @@
 import os
 import threading
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
+from pathlib import Path
 import pdb
 from typing import Callable, Optional
+
+import yaml
 
 import numpy as np
 import cv2
@@ -14,6 +17,7 @@ _debug_draw = None # actually an import, see setup_isaacsim()
 import transform_utils as tu
 from rollout_datastructs import Image, ObsAction, Step
 import rollout_utils as ru
+import utils
 
 
 class Arrow:
@@ -30,21 +34,45 @@ class IsaacSimWorld:
         self.arrow = arrow
         self.robot = robot
 
-@dataclass 
+@dataclass
 class WorldConfig:
+    model_config_path: str = "experiment_configs/onebox.yaml"
     scene_path : str ='visual-servo-rollout/output_scene.usdz'
-    sim_steps: int = 10
+    sim_steps: int = 50
     e_cam_init_pos: tuple[float, float, float] = (0.15, -0.75, 0.35)
     e_cam_init_rot: tuple[float, float, float] = (70, 0, 0)
 
-    robot_init_pose: tuple[float, float, float] = (0.15, -0.2, 0.15) 
+    robot_init_pose: tuple[float, float, float] = (0.15, -0.2, 0.15)
     robot_init_rot: tuple[float, float, float] = (0., 0., 90.)
 
     debug: bool = False
 
+    @classmethod
+    def from_yaml(cls, yaml_path: str) -> "WorldConfig":
+        path = Path(yaml_path)
+        if not path.exists():
+            raise FileNotFoundError(f"Config file not found: {yaml_path}")
+
+        with open(path) as f:
+            data = yaml.safe_load(f) or {}
+
+        field_names = {f.name for f in fields(cls)}
+        provided_fields = set(data.keys())
+        missing_fields = field_names - provided_fields
+        
+        if missing_fields:
+            raise ValueError(
+                f"Missing required fields in YAML config: {sorted(missing_fields)}. "
+                f"Provided fields: {sorted(provided_fields)}. "
+                f"Required fields: {sorted(field_names)}."
+            )
+
+        return cls(**data)
+
+
 def setup_isaacsim(config) -> IsaacSimWorld:
     simulation_app = SimulationApp({
-        "headless": False,
+        "headless": True,
         "width": 1920,
         "height": 1080,
     })
@@ -104,7 +132,7 @@ def setup_isaacsim(config) -> IsaacSimWorld:
     arrow = Arrow()
 
     return IsaacSimWorld(
-        stage, my_world, simulation_app, external_camera, robot#, arrow
+        stage, my_world, simulation_app, external_camera, robot, arrow
     )
 
 def step_seriously(world):
@@ -135,14 +163,10 @@ def update_arrow(direction: np.ndarray, origin: np.ndarray, arrow):
     )
 
 
-def step_sim(world, keyboard_input: Optional[KeyboardFlags]) -> Step:
+def step_sim(world, keyboard_input: Optional[ru.KeyboardFlags]) -> Step:
     hog(world.sim_app, keyboard_input) if keyboard_input else None
     obs_action = robo.action_loop_once(world.robot)
-    update_arrow(
-        obs_action.action.direction,
-        tu.get_translation(robo.get_pose(world.robot)),
-        world.arrow
-    )
+    update_arrow(obs_action.action.direction, tu.get_translation(robo.get_pose(world.robot)), world.arrow)
     external_image = get_image(world.external_camera)
     step_seriously(world)
 
@@ -164,7 +188,10 @@ def step_sim(world, keyboard_input: Optional[KeyboardFlags]) -> Step:
 
 def main(config):
 
+    model_config = utils.load_config(config.model_config_path)
     world = setup_isaacsim(config)
+    direction_model, _ = ru.create_direction_model(config, model_config)
+    robo.set_direction_model(world.robot, direction_model)
     step_seriously(world)
     imgs = []
     keyboard_input = ru.KeyboardFlags() if config.debug else None

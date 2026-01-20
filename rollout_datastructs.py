@@ -16,6 +16,9 @@ class Observation:
     right: Image
     depth: np.ndarray
 
+    def flatten(self):
+        return [self.left.image, self.right.image, self.depth], dict(left_path=self.left.path, right_path=self.right.path)
+
     def stereo_sample(self):
         return StereoSample(
             self.left.image,
