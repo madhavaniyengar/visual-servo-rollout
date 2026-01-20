@@ -12,26 +12,22 @@ from isaacsim import SimulationApp
 _debug_draw = None # actually an import, see setup_isaacsim()
 
 import transform_utils as tu
-from rollout_datastructs import Image, Step
-from rollout_utils import KeyboardFlags
+from rollout_datastructs import Image, ObsAction, Step
+import rollout_utils as ru
 
 
-# class Arrow:
-#     def __init__(self, origin: np.ndarray, direction: np.ndarray, length: float):
-#         self.origin = np.ndarray
-#         self.direction = direction
-#         self.length = length
-#         self.debug_line = _debug_draw.acquire_debug_draw_interface()
-#
-#         self.debug_line.clear_lines()
+class Arrow:
+    def __init__(self):
+        self.debug_line = _debug_draw.acquire_debug_draw_interface()
+        self.debug_line.clear_lines()
 
 class IsaacSimWorld:
-    def __init__(self, stage, world, sim_app, external_camera, robot):
+    def __init__(self, stage, world, sim_app, external_camera, robot, arrow):
         self.stage = stage
         self.sim_app = sim_app
         self.world = world
         self.external_camera = external_camera
-        # self.arrow = arrow
+        self.arrow = arrow
         self.robot = robot
 
 @dataclass 
@@ -105,7 +101,7 @@ def setup_isaacsim(config) -> IsaacSimWorld:
     my_world = World(stage_units_in_meters=1.0)
     my_world.reset()
     robot = robo.Robot("robot", "/World", config.robot_init_pose, config.robot_init_rot, lambda _ : np.array([0.05, 0., 0.]))
-    # arrow = Arrow(config.robot_init_pose, [1.0, 0., 0.], 1.)
+    arrow = Arrow()
 
     return IsaacSimWorld(
         stage, my_world, simulation_app, external_camera, robot#, arrow
@@ -124,10 +120,29 @@ def hog(sim_app, keyboard_input):
         sim_app.update()
     keyboard_input.clear_step_flag()
 
+def update_arrow(direction: np.ndarray, origin: np.ndarray, arrow):
+    arrow.debug_line.clear_lines()
+    arrow_end = origin + direction
+    start = carb.Float3(*origin)
+    endpoint = carb.Float3(*arrow_end)
+    arrow_color = carb.ColorRgba(1., 0., 0., 1.)
+    arrow_thickness = 3.
+    arrow.debug_line.draw_lines(
+        [start],  # List of carb.Float3
+        [endpoint],    # List of carb.Float3
+        [arrow_color],  # List of carb.ColorRgba
+        [arrow_thickness]  # List of float
+    )
+
+
 def step_sim(world, keyboard_input: Optional[KeyboardFlags]) -> Step:
     hog(world.sim_app, keyboard_input) if keyboard_input else None
     obs_action = robo.action_loop_once(world.robot)
-    # update_arrow(obs_action, world.arrow)
+    update_arrow(
+        obs_action.action.direction,
+        tu.get_translation(robo.get_pose(world.robot)),
+        world.arrow
+    )
     external_image = get_image(world.external_camera)
     step_seriously(world)
 
@@ -152,11 +167,11 @@ def main(config):
     world = setup_isaacsim(config)
     step_seriously(world)
     imgs = []
-    keyboard_input = KeyboardFlags() if config.debug else None
+    keyboard_input = ru.KeyboardFlags() if config.debug else None
     countdown = (True for _ in range(config.sim_steps))
     while (not keyboard_input.quit_flag()) if config.debug else next(countdown, False):
         step = step_sim(world, keyboard_input)
-        imgs.append(step.images[0].image)
+        imgs.append(step.images[1].image)
     imageio.mimwrite("test_video.mp4", imgs, fps=2)
 
 
