@@ -39,8 +39,7 @@ class WorldConfig:
     model_config_path: str = "experiment_configs/onebox.yaml"
     scene_path : str ='visual-servo-rollout/output_scene.usdz'
     sim_steps: int = 50
-    e_cam_init_pos: tuple[float, float, float] = (0.15, -0.75, 0.35)
-    e_cam_init_rot: tuple[float, float, float] = (70, 0, 0)
+    e_cam_init_pos: tuple[float, float, float] = (-0.4018, -0.15, 0.15)
 
     robot_init_pose: tuple[float, float, float] = (0.15, -0.2, 0.15)
     robot_init_rot: tuple[float, float, float] = (0., 0., 90.)
@@ -121,11 +120,12 @@ def setup_isaacsim(config) -> IsaacSimWorld:
     )
     external_camera.initialize()
     external_camera.set_clipping_range(0.1, 100.0)
-    external_camera.set_world_pose(
-        position=config.e_cam_init_pos,
-        orientation=rot_utils_np.euler_angles_to_quats(config.e_cam_init_rot, degrees=True),
+    external_camera.set_local_pose(
+        translation=config.e_cam_init_pos,
+        orientation=np.asarray([0.56425, 0.50051, -0.43144, -0.49494]), # rot_utils_np.euler_angles_to_quats(config.e_cam_init_rot, degrees=True),
         camera_axes="usd"
     )
+    external_camera.set_focal_length(1.8) # cm
     my_world = World(stage_units_in_meters=1.0)
     my_world.reset()
     robot = robo.Robot("robot", "/World", config.robot_init_pose, config.robot_init_rot, lambda _ : np.array([0.05, 0., 0.]))
