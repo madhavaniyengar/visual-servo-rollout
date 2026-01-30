@@ -7,6 +7,9 @@ def add_translation(vec, pose_matrix):
     pose_matrix[:3, -1] += vec
     return pose_matrix
 
+def transform(vec, pose_matrix):
+    return rotate(vec, pose_matrix) + get_translation(pose_matrix)
+
 def rotate(vec, pose_matrix):
     rot = pose_matrix[:3, :3]
     return np.dot(rot, vec)
@@ -16,3 +19,6 @@ def get_translation(pose_matrix):
 
 def get_euler(pose_matrix):
     return R.from_matrix(pose_matrix[:3, :3]).as_euler("xyz", degrees=True)
+
+def resize_norm(vector: np.ndarray, norm: float):
+    return vector / np.linalg.norm(vector) * norm

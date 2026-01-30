@@ -10,6 +10,8 @@ import isaacsim.core.utils.numpy.rotations as rot_utils_np
 from isaacsim.sensors.camera import Camera
 from datagen2_isaacsim.isaac_utils import create_empty, setup_camera, set_transform, setup_render_product
 
+from rollout_datastructs import PrimObj
+
 
 @dataclass
 class OrbbecGemini2Args:
@@ -210,7 +212,7 @@ class OrbbecGemini2:
         })
 
 
-class ZedMini:
+class ZedMini(PrimObj):
     """Zed Mini stereo camera simulation using Isaac Sim Camera API.
 
     Specs:
@@ -232,6 +234,7 @@ class ZedMini:
         # Create rig root
         self.prim_path = f"{parent_path}/{name}"
         self.prim = create_empty(name, parent_path)
+        super().__init__(self.prim_path, self.prim)
 
         # Left RGB camera
         self.left_camera_path = f"{self.prim_path}/{name}_left"
