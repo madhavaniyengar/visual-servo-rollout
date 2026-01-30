@@ -1,4 +1,5 @@
 import os
+from functools import partial
 import itertools
 import threading
 from dataclasses import dataclass, fields
@@ -15,12 +16,13 @@ import imageio
 from isaacsim import SimulationApp
 
 import transform_utils as tu
+
 ru = None
 from rollout_datastructs import Image, ObsAction, Step, PrimObj, ExternalCamera, SimWorld, Empty
 import utils
 
 class IsaacSimWorld:
-    def __init__(self, stage, world, sim_app, external_camera, robots: List[PrimObj], config):
+    def __init__(self, stage, world, sim_app, external_camera, robots: List[PrimObj], config, hidden_prims):
         self.stage = stage
         self.sim_app = sim_app
         self.world = world
@@ -28,6 +30,7 @@ class IsaacSimWorld:
         self.external_camera = external_camera
         self.robots = robots
         self.config = config
+        self.hidden_prims = hidden_prims
 
 @dataclass
 class Config:
@@ -121,25 +124,30 @@ def setup_isaacsim(config) -> IsaacSimWorld:
     grasp_frame = Empty(parent=pallet, name="grasp_frame")
     ru.pmodify(grasp_frame, rotation=(0, 0, -90))
 
+    if config.direction_use_moving_avg:
+        policy = partial(robo.MovingAvgDirectionPolicy, maxlen=config.direction_moving_avg_buffer_len)
+    else:
+        policy = robo.IdentityDirectionPolicy
     robots = ru.spawn_n_robots(
         config=config,
         parent=grasp_frame,
-        sim_app=simulation_app,
-        direction_policy=robo.MovingAvgDirectionPolicy(maxlen=config.direction_moving_avg_buffer_len) if config.direction_use_moving_avg else robo.IdentityDirectionPolicy(),
+        direction_policy=policy,
         n=config.n_robots,
     )
+    hidden_prims = robots
 
     return IsaacSimWorld(
-        stage, sim_world, simulation_app, external_camera, robots, config
+        stage, sim_world, simulation_app, external_camera, robots, config, hidden_prims
     )
 
 def step_sim(world, keyboard_input: Optional["KeyboardFlags"]) -> Step:
-    ru.physics_step(world.world)
-    ru.render_step(world.sim_app)
     ru.hog(world.sim_app, keyboard_input) if keyboard_input else None
-    obs_actions = [robo.action_loop_once(r) for r in world.robots]
-    images = list(map(lambda oa : oa.obs.left, obs_actions))
+
+    ru.physics_step(world.world)
+    with ru.render_step_hidden(world.sim_app, prims_to_hide=world.hidden_prims):
+        obs_actions = [robo.action_loop_once(r) for r in world.robots]
     external_image = ru.get_image(world.external_camera)
+    images = list(map(lambda oa : oa.obs.left, obs_actions))
 
     return Step(list(itertools.chain(images, [external_image])))
 

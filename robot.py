@@ -87,7 +87,7 @@ class MovingAvgDirectionPolicy:
 
 class Robot(PrimObj):
 
-    def __init__(self, name, parent_path, init_translation, init_rotation, offset_model, direction_policy, sim_app, step_size):
+    def __init__(self, name, parent_path, init_translation, init_rotation, offset_model, direction_policy, step_size):
         self.path = f"{parent_path}/{name}"
         self.empty = create_empty(name, parent_path)
         super().__init__(self.path, self.empty)
@@ -98,9 +98,7 @@ class Robot(PrimObj):
 
         self.last_direction = None
 
-        camera = ZedMini("camera", parent_path=self.path, frequency=-1)
-        filtered_camera = ru.FilteredCamera(camera, sim_app)
-        self.camera = filtered_camera
+        self.camera = ZedMini("camera", parent_path=self.path, frequency=-1)
         ru.pmodify(self.camera, rotation=(0., 0., -90.))
 
         self.direction_policy = direction_policy
@@ -143,11 +141,6 @@ def move(action, robot):
         robot,
         translation=transform_utils.get_translation(robot_new_pose),
     )
-
-def next_direction_moving_avg(robot, inpt: StereoSample) -> np.ndarray:
-    next_dir = next_direction(robot, inpt)
-    robot.update_last_n_predictions(next_dir)
-    return np.array(robot.last_n_predictions).mean(axis=0)
 
 def action_loop_once(robot):
     device = get_model_device(robot.next_direction_model)
