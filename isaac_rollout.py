@@ -34,7 +34,7 @@ class Config:
     model_config_path: str = "experiment_configs/best_rollout.yaml"
     scene_path : str ='visual-servo-rollout/output_scene.usdz'
     sim_steps: int = 100
-    e_cam_init_pos: tuple[float, float, float] = (-0.4018, 0.05, 0.25)
+    e_cam_init_pos: tuple[float, float, float] = (-0.4018, -0.05, 0.25)
 
     near_corner: tuple[float, float, float] = (0.35, -0.15, 0.05)
     far_corner: tuple[float, float, float] = (0.65, 0.15, 0.15)  # going to be defined in the box coordinate frame
