@@ -77,44 +77,33 @@ def create_direction_model(world_config, experiment_config: Dict[str, Any]):
     )
     return model, transforms_dict
 
-@contextmanager
-def hidden_scope(prims_to_hide: List[PrimObj], sim_app):
-    set_prims_visible(prims_to_hide, False)
-    render_step(sim_app)
-    try:
-        yield
-    finally:
-        set_prims_visible(prims_to_hide, True)
-        render_step(sim_app)
-
-
-class FilteredCamera:
-    """Virtual camera that hides specified prims during image capture.
-
-    Wraps a ZedMini (or compatible camera) and temporarily hides prims
-    when accessing image data, implementing the decorator pattern.
-    """
-
-    def __init__(self, camera, sim_app):
-        self._camera = camera
-        self._sim_app = sim_app
-        self._prims_to_hide = []
-
-    def add_ignored(self, prims_to_ignore: List[PrimObj]):
-        self._prims_to_hide.extend(prims_to_ignore)
-
-    def __getattr__(self, name):
-        attr = getattr(self._camera, name)
-        if not callable(attr):
-            return attr
-
-        @wraps(attr)
-        def wrapper(*args, **kwargs):
-            with hidden_scope(self._prims_to_hide, self._sim_app):
-                result = attr(*args, **kwargs)
-            return result
-
-        return wrapper
+# class FilteredCamera:
+#     """Virtual camera that hides specified prims during image capture.
+#
+#     Wraps a ZedMini (or compatible camera) and temporarily hides prims
+#     when accessing image data, implementing the decorator pattern.
+#     """
+#
+#     def __init__(self, camera, sim_app):
+#         self._camera = camera
+#         self._sim_app = sim_app
+#         self._prims_to_hide = []
+#
+#     def add_ignored(self, prims_to_ignore: List[PrimObj]):
+#         self._prims_to_hide.extend(prims_to_ignore)
+#
+#     def __getattr__(self, name):
+#         attr = getattr(self._camera, name)
+#         if not callable(attr):
+#             return attr
+#
+#         @wraps(attr)
+#         def wrapper(*args, **kwargs):
+#             with hidden_scope(self._prims_to_hide, self._sim_app):
+#                 result = attr(*args, **kwargs)
+#             return result
+#
+#         return wrapper
 
 
 class KeyboardFlags:
@@ -148,7 +137,7 @@ def sample_in_box(corner1, corner2, n=1):
 def get_image(camera) -> Image:
    return Image(camera.get_rgb(), camera.path)
 
-def spawn_n_robots(config, parent: PrimObj, sim_app, direction_policy, *, n: int):
+def spawn_n_robots(config, parent: PrimObj, direction_policy, *, n: int):
     model_config = utils.load_config(config.model_config_path)
     #TODO: sample in box should be a sampling policy, a function passed in to get the robot positions
     sampled_poses = sample_in_box(config.near_corner, config.far_corner, n=n)
@@ -163,16 +152,12 @@ def spawn_n_robots(config, parent: PrimObj, sim_app, direction_policy, *, n: int
             pose,
             config.robot_init_rot,
             direction_model,
-            direction_policy,
-            sim_app,
+            direction_policy(),
             config.step_size,
         )
         return r
 
     robots = [create_robot(i, pose) for i, pose in enumerate(sampled_poses)]
-    for r in robots:
-        r.camera.add_ignored(robots)
-
     return robots
 
 def hog(sim_app, keyboard_input):
@@ -211,6 +196,16 @@ def videoify(steps: List[Step]):
 
 def physics_step(world):
     world.step(render=True)
+
+@contextmanager
+def render_step_hidden(sim_app, prims_to_hide: List[PrimObj]):
+    set_prims_visible(prims_to_hide, False)
+    sim_app.update()
+    try:
+        yield
+    finally:
+        set_prims_visible(prims_to_hide, True)
+        sim_app.update()
 
 def render_step(sim_app):
     sim_app.update()
