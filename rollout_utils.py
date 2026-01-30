@@ -1,5 +1,5 @@
 from contextlib import contextmanager
-from functools import partial
+from functools import partial, wraps
 import pdb
 from threading import Event, Thread
 from typing import Dict, Any, List, Optional
@@ -104,8 +104,19 @@ class FilteredCamera:
         self._prims_to_hide.extend(prims_to_ignore)
 
     def __getattr__(self, name):
-        with hidden_scope(self._prims_to_hide, self._sim_app):
-            return getattr(self._camera, name)
+        attr = getattr(self._camera, name)
+        if not callable(attr):
+            return attr
+
+        @wraps(attr)
+        def wrapper(*args, **kwargs):
+            with hidden_scope(self._prims_to_hide, self._sim_app):
+                result = attr(*args, **kwargs)
+            return result
+
+        return wrapper
+
+
 class KeyboardFlags:
 
     def __init__(self):
