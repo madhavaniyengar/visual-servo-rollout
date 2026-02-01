@@ -41,8 +41,9 @@ class Config:
     far_corner: tuple[float, float, float] = (0.65, 0.15, 0.15)  # going to be defined in the box coordinate frame
     robot_init_rot: tuple[float, float, float] = (0., 0., 180.)
     n_robots: int = 10
-    robot_first_direction_only: bool = False
     step_size: float = 0.001
+    direction_use_moving_avg: bool = True
+    direction_moving_avg_buffer_len: int = 20
 
     debug: bool = False
 
@@ -124,6 +125,7 @@ def setup_isaacsim(config) -> IsaacSimWorld:
         config=config,
         parent=grasp_frame,
         sim_app=simulation_app,
+        direction_policy=robo.MovingAvgDirectionPolicy(maxlen=config.direction_moving_avg_buffer_len) if config.direction_use_moving_avg else robo.IdentityDirectionPolicy(),
         n=config.n_robots,
     )
 

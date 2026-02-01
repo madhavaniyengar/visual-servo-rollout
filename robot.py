@@ -1,4 +1,5 @@
 import pdb
+from collections import deque
 from dataclasses import dataclass, field
 from typing import Dict, Tuple
 
@@ -72,9 +73,21 @@ class ArrowRegistry:
 # Robot
 # -----------------------------------------------------------------------------
 
+class IdentityDirectionPolicy:
+    def __call__(self, direction):
+        return direction
+
+class MovingAvgDirectionPolicy:
+    def __init__(self, maxlen):
+        self.buffer = deque(maxlen=maxlen)
+
+    def __call__(self, direction: np.ndarray):
+        self.buffer.append(direction)
+        return np.array(self.buffer).mean(axis=0)
+
 class Robot(PrimObj):
 
-    def __init__(self, name, parent_path, init_translation, init_rotation, offset_model, sim_app, first_direction_only, step_size):
+    def __init__(self, name, parent_path, init_translation, init_rotation, offset_model, direction_policy, sim_app, step_size):
         self.path = f"{parent_path}/{name}"
         self.empty = create_empty(name, parent_path)
         super().__init__(self.path, self.empty)
@@ -83,7 +96,6 @@ class Robot(PrimObj):
         self.step_size = step_size
         ru.pmodify(self, init_translation, init_rotation)
 
-        self.first_direction_only = first_direction_only
         self.last_direction = None
 
         camera = ZedMini("camera", parent_path=self.path, frequency=-1)
@@ -91,6 +103,7 @@ class Robot(PrimObj):
         self.camera = filtered_camera
         ru.pmodify(self.camera, rotation=(0., 0., -90.))
 
+        self.direction_policy = direction_policy
         self.body = VisualCuboid(
             prim_path=f"{self.path}/body",
             name="camera_body",
@@ -119,12 +132,8 @@ def get_model_device(model):
     return "cpu"
 
 def next_direction(robot, inpt: StereoSample) -> np.ndarray: 
-    if robot.first_direction_only:
-        if robot.last_direction is None:
-            robot.last_direction = robot.next_direction_model(inpt) # in robot coordinate frame
-        return robot.last_direction
-
-    return robot.next_direction_model(inpt)
+    new_direction = robot.next_direction_model(inpt) 
+    return robot.direction_policy(new_direction)
 
 def move(action, robot):
     cur_pose = ru.prim_local2parent(robot)
@@ -135,14 +144,17 @@ def move(action, robot):
         translation=transform_utils.get_translation(robot_new_pose),
     )
 
+def next_direction_moving_avg(robot, inpt: StereoSample) -> np.ndarray:
+    next_dir = next_direction(robot, inpt)
+    robot.update_last_n_predictions(next_dir)
+    return np.array(robot.last_n_predictions).mean(axis=0)
+
 def action_loop_once(robot):
     device = get_model_device(robot.next_direction_model)
     obs = get_obs(robot)
-    dir = next_direction(
-        robot,
-        obs.stereo_sample().transform(v2.ToImage()).move_to(device)
-    )
-    # Update the robot's arrow in the global registry
+    stereo_sample = obs.stereo_sample().transform(v2.ToImage()).move_to(device)
+    dir = next_direction(robot, stereo_sample)
+
     robot2world = ru.prim_local2world(robot)
     robot_origin = transform_utils.get_translation(robot2world)
     ArrowRegistry.get().set_arrow(
