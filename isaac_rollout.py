@@ -20,13 +20,14 @@ from rollout_datastructs import Image, ObsAction, Step, PrimObj, ExternalCamera,
 import utils
 
 class IsaacSimWorld:
-    def __init__(self, stage, world, sim_app, external_camera, robots: List[PrimObj]):
+    def __init__(self, stage, world, sim_app, external_camera, robots: List[PrimObj], config):
         self.stage = stage
         self.sim_app = sim_app
         self.world = world
 
         self.external_camera = external_camera
         self.robots = robots
+        self.config = config
 
 @dataclass
 class Config:
@@ -34,9 +35,9 @@ class Config:
     model_config_path: str = "experiment_configs/best_rollout.yaml"
     scene_path : str ='visual-servo-rollout/output_scene.usdz'
     sim_steps: int = 100
-    e_cam_init_pos: tuple[float, float, float] = (-0.4018, -0.05, 0.25)
+    e_cam_init_pos: tuple[float, float, float] = (-0.5018, 0.00, 0.25)
 
-    near_corner: tuple[float, float, float] = (0.35, -0.15, 0.05)
+    near_corner: tuple[float, float, float] = (0.55, -0.15, 0.05)
     far_corner: tuple[float, float, float] = (0.65, 0.15, 0.15)  # going to be defined in the box coordinate frame
     robot_init_rot: tuple[float, float, float] = (0., 0., 180.)
     n_robots: int = 10
@@ -73,10 +74,7 @@ def setup_isaacsim(config) -> IsaacSimWorld:
         "headless": config.headless,
         "width": 1920,
         "height": 1080,
-        "/app/asyncRendering": False,
-        "/app/asyncRenderingLowLatency": False,
-        "/omni/replicator/asyncRendering": False,
-    })
+    }, experience=f"{os.path.expanduser('~')}/isaacsim/apps/isaacsim.exp.base.zero_delay.kit")
     global omni, rot_utils_np, rot_utils
     global World, GroundPlane, VisualCuboid, VisualCylinder, VisualCone, Camera
     global Sdf, UsdLux, UsdGeom, Gf, Usd
@@ -114,13 +112,14 @@ def setup_isaacsim(config) -> IsaacSimWorld:
     external_camera = ExternalCamera(
         position=config.e_cam_init_pos,
         orientation=np.asarray([0.56425, 0.50051, -0.43144, -0.49494]),
+        frequency=-1
     )
     pallet = ru.pfind("LoadedPallet_0", stage)
     ru.pmodify(pallet, translation=(0., 0.4, 0.06))
     sim_world = SimWorld(stage_units_in_meters=1.0)
     grasp_frame = Empty(parent=pallet, name="grasp_frame")
     ru.pmodify(grasp_frame, rotation=(0, 0, -90))
-    
+
     robots = ru.spawn_n_robots(
         config=config,
         parent=grasp_frame,
@@ -129,16 +128,16 @@ def setup_isaacsim(config) -> IsaacSimWorld:
     )
 
     return IsaacSimWorld(
-        stage, sim_world, simulation_app, external_camera, robots
+        stage, sim_world, simulation_app, external_camera, robots, config
     )
 
 def step_sim(world, keyboard_input: Optional["KeyboardFlags"]) -> Step:
+    ru.physics_step(world.world)
+    ru.render_step(world.sim_app)
     ru.hog(world.sim_app, keyboard_input) if keyboard_input else None
     obs_actions = [robo.action_loop_once(r) for r in world.robots]
     images = list(map(lambda oa : oa.obs.left, obs_actions))
     external_image = ru.get_image(world.external_camera)
-    ru.physics_step(world.world)
-    ru.render_step(world.sim_app)
 
     return Step(list(itertools.chain(images, [external_image])))
 
