@@ -148,24 +148,26 @@ def sample_in_box(corner1, corner2, n=1):
 def get_image(camera) -> Image:
    return Image(camera.get_rgb(), camera.path)
 
-def spawn_n_robots(config, parent: PrimObj, sim_app, *, n: int):
+def spawn_n_robots(config, parent: PrimObj, sim_app, direction_policy, *, n: int):
     model_config = utils.load_config(config.model_config_path)
+    #TODO: sample in box should be a sampling policy, a function passed in to get the robot positions
     sampled_poses = sample_in_box(config.near_corner, config.far_corner, n=n)
     direction_model, _ = create_direction_model(config, model_config)
 
     def create_robot(i, pose):
         name = f"robot_{i}"
         import robot as robo
-        return robo.Robot(
+        r =  robo.Robot(
             name,
             parent.path,
             pose,
             config.robot_init_rot,
             direction_model,
+            direction_policy,
             sim_app,
-            config.robot_first_direction_only,
             config.step_size,
         )
+        return r
 
     robots = [create_robot(i, pose) for i, pose in enumerate(sampled_poses)]
     for r in robots:
