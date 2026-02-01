@@ -86,7 +86,7 @@ class Robot(PrimObj):
         self.first_direction_only = first_direction_only
         self.last_direction = None
 
-        camera = ZedMini("camera", parent_path=self.path)
+        camera = ZedMini("camera", parent_path=self.path, frequency=-1)
         filtered_camera = ru.FilteredCamera(camera, sim_app)
         self.camera = filtered_camera
         ru.pmodify(self.camera, rotation=(0., 0., -90.))

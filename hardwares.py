@@ -1,6 +1,8 @@
 """Hardware definitions for gripper and camera setup in Isaac Sim."""
 
 import math
+import pdb
+
 import numpy as np
 from dataclasses import dataclass
 from pxr import Gf, UsdGeom
@@ -223,7 +225,7 @@ class ZedMini(PrimObj):
         Field of View: 102 deg (H) x 57 deg (V) x 118 deg (D) max.
         Baseline: 63 mm
     """
-    def __init__(self, name, parent_path, rgb_width: int = 1920, rgb_height: int = 1080):
+    def __init__(self, name, parent_path, frequency, rgb_width: int = 1920, rgb_height: int = 1080):
         self.name = name
         self.rgb_width = rgb_width
         self.rgb_height = rgb_height
@@ -241,6 +243,7 @@ class ZedMini(PrimObj):
         self.left_camera = Camera(
             prim_path=self.left_camera_path,
             resolution=(self.rgb_width, self.rgb_height),
+            frequency=frequency
         )
         self.left_camera.set_local_pose(
             [-self.baseline * 0.5, 0, 0],
@@ -254,6 +257,7 @@ class ZedMini(PrimObj):
         self.right_camera = Camera(
             prim_path=self.right_camera_path,
             resolution=(self.rgb_width, self.rgb_height),
+            frequency=frequency
         )
         self.right_camera.set_local_pose(
             [self.baseline * 0.5, 0, 0],
@@ -302,11 +306,12 @@ class ZedMini(PrimObj):
 
     def get_left_rgb(self):
         """Get RGBA image from left camera."""
-        return self.left_camera.get_rgb()
+        return self.left_camera.get_current_frame(clone=True)["rgb"][..., :3]
+
 
     def get_right_rgb(self):
         """Get RGBA image from right camera."""
-        return self.right_camera.get_rgb()
+        return self.right_camera.get_current_frame(clone=True)["rgb"][..., :3]
 
     def get_left_frame(self):
         """Get full frame data from left camera."""

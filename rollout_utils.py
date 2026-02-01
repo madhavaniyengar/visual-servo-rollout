@@ -211,5 +211,4 @@ def physics_step(world):
     world.step(render=True)
 
 def render_step(sim_app):
-    for _ in range(3):
-        sim_app.update()
+    sim_app.update()
