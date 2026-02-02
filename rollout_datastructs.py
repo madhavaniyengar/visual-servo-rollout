@@ -10,9 +10,17 @@ from datastructs import StereoSample
 
 class PrimObj:
     def __init__(self, path, prim):
-        
+
         self.path = path
         self.prim = prim
+
+    def hide(self):
+        from omni.isaac.core.utils.prims import set_prim_visibility
+        set_prim_visibility(self.prim, False)
+
+    def unhide(self):
+        from omni.isaac.core.utils.prims import set_prim_visibility
+        set_prim_visibility(self.prim, True)
 
 class ExternalCamera(PrimObj):
     def __init__(self, position, orientation, prim_path="/World/external_camera",

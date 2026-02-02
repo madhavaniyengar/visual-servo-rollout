@@ -169,11 +169,6 @@ def prim_at_path(path):
     from omni.isaac.core.utils.stage import get_current_stage
     return get_current_stage().GetPrimAtPath(path)
 
-def set_prims_visible(prims: List[PrimObj], hide:bool):
-    from omni.isaac.core.utils.prims import set_prim_visibility
-    for p in prims:
-        set_prim_visibility(p.prim, hide)
-
 def is_done(config):
     keyboard_input = KeyboardFlags() if config.debug else None
     countdown = (False for _ in range(config.sim_steps))
@@ -199,12 +194,12 @@ def physics_step(world):
 
 @contextmanager
 def render_step_hidden(sim_app, prims_to_hide: List[PrimObj]):
-    set_prims_visible(prims_to_hide, False)
+    [p.hide() for p in prims_to_hide]
     sim_app.update()
     try:
         yield
     finally:
-        set_prims_visible(prims_to_hide, True)
+        [p.unhide() for p in prims_to_hide]
         sim_app.update()
 
 def render_step(sim_app):
