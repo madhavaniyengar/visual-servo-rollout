@@ -30,14 +30,23 @@ class ArrowSpec:
     thickness: float = 3.0
 
 
-class ArrowRegistry:
+class ArrowRegistry(PrimObj):
     """Global registry for debug arrows. Coordinates the singleton debug_draw interface."""
     _instance = None
 
     def __init__(self):
+        super().__init__("arrows", None)
         self._arrows: Dict[str, ArrowSpec] = {}
-        self._draw_iface = None
-        self._carb = None
+        from isaacsim.util.debug_draw import _debug_draw
+        import carb
+        self._draw_iface = _debug_draw.acquire_debug_draw_interface()
+        self._carb = carb
+
+    def hide(self):
+        self._draw_iface.clear_lines()
+
+    def unhide(self):
+        self._redraw_all()
 
     @classmethod
     def get(cls) -> "ArrowRegistry":
@@ -55,12 +64,6 @@ class ArrowRegistry:
 
     def _redraw_all(self):
         # Lazy import to avoid import-time side effects
-        if self._draw_iface is None:
-            from isaacsim.util.debug_draw import _debug_draw
-            import carb
-            self._draw_iface = _debug_draw.acquire_debug_draw_interface()
-            self._carb = carb
-
         self._draw_iface.clear_lines()
         for spec in self._arrows.values():
             start = self._carb.Float3(*spec.origin)

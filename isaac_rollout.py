@@ -134,7 +134,7 @@ def setup_isaacsim(config) -> IsaacSimWorld:
         direction_policy=policy,
         n=config.n_robots,
     )
-    hidden_prims = robots
+    hidden_prims = [*robots, robo.ArrowRegistry.get()]
 
     return IsaacSimWorld(
         stage, sim_world, simulation_app, external_camera, robots, config, hidden_prims
