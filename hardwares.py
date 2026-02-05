@@ -12,7 +12,7 @@ import isaacsim.core.utils.numpy.rotations as rot_utils_np
 from isaacsim.sensors.camera import Camera
 from datagen2_isaacsim.isaac_utils import create_empty, setup_camera, set_transform, setup_render_product
 
-from rollout_datastructs import PrimObj
+from rollout_datastructs import SceneObj
 
 
 @dataclass
@@ -214,7 +214,7 @@ class OrbbecGemini2:
         })
 
 
-class ZedMini(PrimObj):
+class ZedMini(SceneObj):
     """Zed Mini stereo camera simulation using Isaac Sim Camera API.
 
     Specs:

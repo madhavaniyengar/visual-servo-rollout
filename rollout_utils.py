@@ -12,14 +12,11 @@ import imageio
 from train import create_model, create_transforms
 from datastructs import StereoSample
 from modelutils import Transform, box2robot
-from rollout_datastructs import Step, Image, PrimObj
+from rollout_datastructs import Step, Image, SceneObj
 from hardwares import ZedMini
 from datagen2_isaacsim.isaac_utils import create_empty, set_transform
 import utils
 
-
-def pmodify(primobj: PrimObj, translation: Optional[tuple[float, float, float]]=None, rotation: Optional[tuple[float, float, float]]=None):
-    set_transform(primobj.prim, translation, rotation)
 
 def pfind(prim_str, stage):
     from pxr import Usd
@@ -27,18 +24,18 @@ def pfind(prim_str, stage):
     root_prim = stage.GetPrimAtPath("/")
     for prim in Usd.PrimRange(root_prim):
         if prim.GetName() == prim_str:
-            return PrimObj(path=str(prim.GetPath()), prim=prim)
+            return SceneObj(path=str(prim.GetPath()), prim=prim)
 
     raise RuntimeError()
 
-def prim_local2world(prim_obj: PrimObj):
+def prim_local2world(prim_obj: SceneObj):
     from pxr import UsdGeom, Usd
     prim = prim_obj.prim
     xform = UsdGeom.Xform(prim)
     matrix = xform.ComputeLocalToWorldTransform(Usd.TimeCode.Default())
     return np.array(matrix).T
 
-def prim_local2parent(prim_obj: PrimObj):
+def prim_local2parent(prim_obj: SceneObj):
     from pxr import UsdGeom, Usd
     prim = prim_obj.prim
     xform = UsdGeom.Xform(prim)
@@ -77,35 +74,6 @@ def create_direction_model(world_config, experiment_config: Dict[str, Any]):
     )
     return model, transforms_dict
 
-# class FilteredCamera:
-#     """Virtual camera that hides specified prims during image capture.
-#
-#     Wraps a ZedMini (or compatible camera) and temporarily hides prims
-#     when accessing image data, implementing the decorator pattern.
-#     """
-#
-#     def __init__(self, camera, sim_app):
-#         self._camera = camera
-#         self._sim_app = sim_app
-#         self._prims_to_hide = []
-#
-#     def add_ignored(self, prims_to_ignore: List[PrimObj]):
-#         self._prims_to_hide.extend(prims_to_ignore)
-#
-#     def __getattr__(self, name):
-#         attr = getattr(self._camera, name)
-#         if not callable(attr):
-#             return attr
-#
-#         @wraps(attr)
-#         def wrapper(*args, **kwargs):
-#             with hidden_scope(self._prims_to_hide, self._sim_app):
-#                 result = attr(*args, **kwargs)
-#             return result
-#
-#         return wrapper
-
-
 class KeyboardFlags:
 
     def __init__(self):
@@ -137,7 +105,7 @@ def sample_in_box(corner1, corner2, n=1):
 def get_image(camera) -> Image:
    return Image(camera.get_rgb(), camera.path)
 
-def spawn_n_robots(config, parent: PrimObj, direction_policy, *, n: int):
+def spawn_n_robots(config, parent: SceneObj, direction_policy, *, n: int, visualize_direction: bool):
     model_config = utils.load_config(config.model_config_path)
     #TODO: sample in box should be a sampling policy, a function passed in to get the robot positions
     sampled_poses = sample_in_box(config.near_corner, config.far_corner, n=n)
@@ -148,12 +116,13 @@ def spawn_n_robots(config, parent: PrimObj, direction_policy, *, n: int):
         import robot as robo
         r =  robo.Robot(
             name,
-            parent.path,
+            parent,
             pose,
             config.robot_init_rot,
             direction_model,
             direction_policy(),
             config.step_size,
+            visualize_direction=visualize_direction,
         )
         return r
 
@@ -193,7 +162,7 @@ def physics_step(world):
     world.step(render=True)
 
 @contextmanager
-def render_step_hidden(sim_app, prims_to_hide: List[PrimObj]):
+def render_step_hidden(sim_app, prims_to_hide: List[SceneObj]):
     [p.hide() for p in prims_to_hide]
     sim_app.update()
     try:

@@ -18,19 +18,17 @@ from isaacsim import SimulationApp
 import transform_utils as tu
 
 ru = None
-from rollout_datastructs import Image, ObsAction, Step, PrimObj, ExternalCamera, SimWorld, Empty
+from rollout_datastructs import Image, ObsAction, Step, SceneObj, RolloutCamera, SimWorld, Empty
 import utils
 
 class IsaacSimWorld:
-    def __init__(self, stage, world, sim_app, external_camera, robots: List[PrimObj], config, hidden_prims):
+    def __init__(self, stage, world, sim_app, config, obj_registry):
         self.stage = stage
         self.sim_app = sim_app
         self.world = world
 
-        self.external_camera = external_camera
-        self.robots = robots
         self.config = config
-        self.hidden_prims = hidden_prims
+        self.obj_registry = obj_registry
 
 @dataclass
 class Config:
@@ -72,6 +70,16 @@ class Config:
 
         return cls(**data)
 
+class ObjRegistry:
+
+    def __init__(self):
+        self._scene_objs: List[SceneObj] = []
+
+    def register(self, *scene_objs):
+        self._scene_objs.extend(scene_objs)
+
+    def getall(self, *classes):
+        return [obj for obj in self._scene_objs if isinstance(obj, classes)]
 
 def setup_isaacsim(config) -> IsaacSimWorld:
     simulation_app = SimulationApp({
@@ -85,6 +93,7 @@ def setup_isaacsim(config) -> IsaacSimWorld:
     global set_camera_view, robo, ru
     global rep, set_prim_visibility
     global get_current_stage
+    global euler_angles_to_quat
 
     import omni.usd
     import isaacsim.core.utils.numpy.rotations as rot_utils_np
@@ -98,7 +107,7 @@ def setup_isaacsim(config) -> IsaacSimWorld:
     import omni.replicator.core as rep
     from omni.isaac.core.utils.prims import set_prim_visibility
     from omni.isaac.core.utils.stage import get_current_stage
-
+    from isaacsim.core.utils.rotations import euler_angles_to_quat
 
     import robot as robo
     import rollout_utils as ru
@@ -113,43 +122,75 @@ def setup_isaacsim(config) -> IsaacSimWorld:
     domeLight = UsdLux.DomeLight.Define(stage, Sdf.Path("/DomeLight"))
     domeLight.CreateIntensityAttr(500)
 
-    external_camera = ExternalCamera(
-        position=config.e_cam_init_pos,
-        orientation=np.asarray([0.56425, 0.50051, -0.43144, -0.49494]),
-        frequency=-1
+    obj_registry = ObjRegistry()
+
+    external_camera = (
+            RolloutCamera(
+                parent=SceneObj("/World", world_prim),
+                name="external_camera"
+            )
+           .transform(
+                translation=config.e_cam_init_pos,
+                rotation=(82.72115958, 0.49073557, -82.08012841) #np.asarray([0.56425, 0.50051, -0.43144, -0.49494]),
+            )
+
     )
-    pallet = ru.pfind("LoadedPallet_0", stage)
-    ru.pmodify(pallet, translation=(0., 0.4, 0.06))
-    sim_world = SimWorld(stage_units_in_meters=1.0)
-    grasp_frame = Empty(parent=pallet, name="grasp_frame")
-    ru.pmodify(grasp_frame, rotation=(0, 0, -90))
+    obj_registry.register(external_camera)
+
+    pallet = (
+            ru.pfind("LoadedPallet_0", stage)
+            .transform(translation=(0., 0.4, 0.06))
+    )
+
+    grasp_frame = (
+            Empty(parent=pallet, name="grasp_frame")
+            .transform(translation=(0, -0.09/2, 0), rotation=(0, 0, -90))
+    )
 
     if config.direction_use_moving_avg:
         policy = partial(robo.MovingAvgDirectionPolicy, maxlen=config.direction_moving_avg_buffer_len)
     else:
         policy = robo.IdentityDirectionPolicy
+
     robots = ru.spawn_n_robots(
         config=config,
         parent=grasp_frame,
         direction_policy=policy,
         n=config.n_robots,
+        visualize_direction=True
+        #TODO: you're basically keeping the arrow registry internal to the robot
     )
-    hidden_prims = [*robots, robo.ArrowRegistry.get()]
+    obj_registry.register(*robots)
+
+    fpv_vis = [
+        RolloutCamera(parent=robot, name=f"vis_{robot.name}_camera").transform(rotation=[90, 0, -90]) 
+        for robot in robots
+    ]
+    obj_registry.register(*fpv_vis)
+
+    debug_target = robo.DebugTarget(name="gt target", parent=grasp_frame, color=(0., 1., 0., 1.), thickness=50)
+    obj_registry.register(debug_target)
+
+    sim_world = SimWorld(stage_units_in_meters=1.0)
 
     return IsaacSimWorld(
-        stage, sim_world, simulation_app, external_camera, robots, config, hidden_prims
+        stage, sim_world, simulation_app, config, obj_registry
     )
 
 def step_sim(world, keyboard_input: Optional["KeyboardFlags"]) -> Step:
     ru.hog(world.sim_app, keyboard_input) if keyboard_input else None
 
     ru.physics_step(world.world)
-    with ru.render_step_hidden(world.sim_app, prims_to_hide=world.hidden_prims):
-        obs_actions = [robo.action_loop_once(r) for r in world.robots]
-    external_image = ru.get_image(world.external_camera)
+    ru.render_step(world.sim_app)
+    vis_images = [ru.get_image(camera) for camera in world.obj_registry.getall(RolloutCamera)]
+
+    with ru.render_step_hidden(world.sim_app, prims_to_hide=world.obj_registry.getall(robo.Robot, robo.DebugTarget)):
+        robots = world.obj_registry.getall(robo.Robot)
+        obs_actions = [robo.action_loop_once(r) for r in robots]
+
     images = list(map(lambda oa : oa.obs.left, obs_actions))
 
-    return Step(list(itertools.chain(images, [external_image])))
+    return Step(list(itertools.chain(vis_images, images)))
 
 def main(config):
 

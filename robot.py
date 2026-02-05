@@ -11,7 +11,7 @@ import torchvision.transforms.v2 as v2
 
 from datagen2_isaacsim.isaac_utils import create_empty, set_transform
 from hardwares import ZedMini
-from rollout_datastructs import Observation, ObsAction, Action, Image, PrimObj
+from rollout_datastructs import Observation, ObsAction, Action, Image, SceneObj
 import transform_utils
 from datastructs import StereoSample
 import rollout_utils as ru
@@ -29,48 +29,78 @@ class ArrowSpec:
     color: Tuple[float, float, float, float] = (1., 0., 0., 1.)  # RGBA
     thickness: float = 3.0
 
+    def draw(self, debug_draw_interface):
+        end = (self.origin + self.direction)
+        debug_draw_interface.draw_lines([self.origin], [end], [self.color], [self.thickness])
 
-class ArrowRegistry(PrimObj):
+@dataclass
+class PointSpec:
+    origin: np.ndarray
+    color: Tuple[float, float, float, float] = (1., 0., 0., 1.)
+    thickness: float = 3.0
+
+    def draw(self, debug_draw_interface):
+        debug_draw_interface.draw_points([self.origin], [self.color], [self.thickness])
+
+
+class DebugTarget(SceneObj):
+    def __init__(self, name, parent, color, thickness):
+        self.path = f"{parent.path}/{name}"
+        super().__init__(self.path, None)
+        self.name = name
+        self.parent = parent
+        self.color = color
+        self.thickness = thickness
+        self.translation = (0, 0, 0)
+        self.rotation = (0, 0, 0)
+        self.transform(translation=self.translation, rotation=self.rotation)
+
+    def transform(self, translation=None, rotation=None):
+        self.translation = translation
+        self.rotation = rotation
+
+        parent2world = ru.prim_local2world(self.parent)
+        self2parent = transform_utils.create_se3(translation=self.translation, parent2self_euler=self.rotation)
+        self2world = self2parent @ parent2world
+        pose_world = transform_utils.get_translation(self2world)
+
+        DebugRegistry.get().draw(
+                self.name, PointSpec(pose_world, self.color, self.thickness)
+        )
+
+    def hide(self):
+        DebugRegistry.get().hide(self.name)
+
+    def unhide(self):
+        self.transform(self.translation, self.rotation)
+
+class DebugRegistry:
     """Global registry for debug arrows. Coordinates the singleton debug_draw interface."""
     _instance = None
 
     def __init__(self):
-        super().__init__("arrows", None)
-        self._arrows: Dict[str, ArrowSpec] = {}
+        self._db_objs: Dict[str, ArrowSpec | PointSpec] = {}
         from isaacsim.util.debug_draw import _debug_draw
-        import carb
         self._draw_iface = _debug_draw.acquire_debug_draw_interface()
-        self._carb = carb
-
-    def hide(self):
-        self._draw_iface.clear_lines()
-
-    def unhide(self):
-        self._redraw_all()
 
     @classmethod
-    def get(cls) -> "ArrowRegistry":
+    def get(cls) -> "DebugRegistry":
         if cls._instance is None:
             cls._instance = cls()
         return cls._instance
 
-    def set_arrow(self, key: str, spec: ArrowSpec):
-        self._arrows[key] = spec
+    def draw(self, key: str, spec: ArrowSpec | PointSpec):
+        self._db_objs[key] = spec
         self._redraw_all()
 
-    def remove_arrow(self, key: str):
-        self._arrows.pop(key, None)
+    def hide(self, key: str):
+        self._db_objs.pop(key, None)
         self._redraw_all()
 
     def _redraw_all(self):
-        # Lazy import to avoid import-time side effects
         self._draw_iface.clear_lines()
-        for spec in self._arrows.values():
-            start = self._carb.Float3(*spec.origin)
-            end = self._carb.Float3(*(spec.origin + spec.direction))
-            color = self._carb.ColorRgba(*spec.color)
-            self._draw_iface.draw_lines([start], [end], [color], [spec.thickness])
-
+        self._draw_iface.clear_points()
+        [spec.draw(self._draw_iface) for spec in self._db_objs.values()]
 
 # -----------------------------------------------------------------------------
 # Robot
@@ -88,29 +118,41 @@ class MovingAvgDirectionPolicy:
         self.buffer.append(direction)
         return np.array(self.buffer).mean(axis=0)
 
-class Robot(PrimObj):
+class Robot(SceneObj):
 
-    def __init__(self, name, parent_path, init_translation, init_rotation, offset_model, direction_policy, step_size):
-        self.path = f"{parent_path}/{name}"
-        self.empty = create_empty(name, parent_path)
+    def __init__(self, name, parent: SceneObj, init_translation, init_rotation, offset_model, direction_policy, step_size, *, visualize_direction: bool):
+        self.path = f"{parent.path}/{name}"
+        self.empty = create_empty(name, parent.path)
         super().__init__(self.path, self.empty)
         self.name = name
         self.next_direction_model = offset_model
         self.step_size = step_size
-        ru.pmodify(self, init_translation, init_rotation)
+        self.transform(init_translation, init_rotation)
 
         self.last_direction = None
 
-        self.camera = ZedMini("camera", parent_path=self.path, frequency=-1)
-        ru.pmodify(self.camera, rotation=(0., 0., -90.))
+        self.camera = (
+                ZedMini("camera", parent_path=self.path, frequency=-1)
+                .transform(rotation=(0., 0., -90.))
+        )
 
         self.direction_policy = direction_policy
+        self.visualize_direction = visualize_direction
         self.body = VisualCuboid(
             prim_path=f"{self.path}/body",
             name="camera_body",
             size=0.025,
             color=np.array([0, 255, 0]),
         )
+
+    def hide(self):
+        super().hide()
+        if self.visualize_direction:
+            DebugRegistry.get().hide(self.name)
+
+    def unhide(self):
+        super().unhide()
+
 
 def get_obs(robot) -> Observation:
     left = robot.camera.get_left_rgb()
@@ -140,8 +182,7 @@ def move(action, robot):
     cur_pose = ru.prim_local2parent(robot)
     action = transform_utils.rotate(action, cur_pose)
     robot_new_pose = transform_utils.add_translation(action, cur_pose)
-    ru.pmodify(
-        robot,
+    robot.transform(
         translation=transform_utils.get_translation(robot_new_pose),
     )
 
@@ -151,15 +192,16 @@ def action_loop_once(robot):
     stereo_sample = obs.stereo_sample().transform(v2.ToImage()).move_to(device)
     dir = next_direction(robot, stereo_sample)
 
-    robot2world = ru.prim_local2world(robot)
-    robot_origin = transform_utils.get_translation(robot2world)
-    ArrowRegistry.get().set_arrow(
-        robot.name, 
-        ArrowSpec(
-            origin=robot_origin,
-            direction=transform_utils.rotate(dir, robot2world)
+    if robot.visualize_direction:
+        robot2world = ru.prim_local2world(robot)
+        robot_origin = transform_utils.get_translation(robot2world)
+        DebugRegistry.get().draw(
+            robot.name, 
+            ArrowSpec(
+                origin=robot_origin,
+                direction=transform_utils.rotate(dir, robot2world)
+            )
         )
-    )
     step = transform_utils.resize_norm(dir, robot.step_size)
     move(step, robot)
     return ObsAction(obs, Action(dir))
