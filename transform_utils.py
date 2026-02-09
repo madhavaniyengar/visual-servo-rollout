@@ -23,9 +23,17 @@ def get_euler(pose_matrix):
 def resize_norm(vector: np.ndarray, norm: float):
     return vector / np.linalg.norm(vector) * norm
 
-def create_se3(*, translation, parent2self_euler):
-    rotn = np.transpose(R.from_euler("xyz", parent2self_euler, degrees=True).as_matrix())
+def create_se3(*, translation, active_euler):
+    rotn = np.transpose(R.from_euler("xyz", active_euler, degrees=True).as_matrix())
     se3 = np.eye(4)
     se3[:3, :3] = rotn
     se3[:3, -1] = translation
     return se3
+
+def se3_inverse(se3):
+    new_rotn = se3[:3, :3].T
+    new_translation = -np.dot(new_rotn, se3[:3, -1])
+    new_se3 = np.eye(4)
+    new_se3[:3, :3] = new_rotn
+    new_se3[:3, -1] = new_translation
+    return new_se3

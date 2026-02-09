@@ -13,7 +13,6 @@ from train import create_model, create_transforms
 from datastructs import StereoSample
 from modelutils import Transform, box2robot
 from rollout_datastructs import Step, Image, SceneObj
-from hardwares import ZedMini
 from datagen2_isaacsim.isaac_utils import create_empty, set_transform
 import utils
 
@@ -103,7 +102,7 @@ def sample_in_box(corner1, corner2, n=1):
     return np.random.default_rng().uniform(low, high, size=(n, 3))
 
 def get_image(camera) -> Image:
-   return Image(camera.get_rgb(), camera.path)
+    return Image(camera.get_rgb(), camera.get_intrinsics_matrix(), camera.path)
 
 def spawn_n_robots(config, parent: SceneObj, direction_policy, *, n: int, visualize_direction: bool):
     model_config = utils.load_config(config.model_config_path)
@@ -148,15 +147,15 @@ def is_done(config):
 
 def videoify(steps: List[Step]):
     assert len(steps) > 0, "Steps list is empty"
-    cameras = {path : [] for path in steps[0].camera_paths}
 
+    buffers = {}
     for step in steps:
-        for image in step.images:
-            cameras[image.path].append(image.image)
+        for renderable in step.renderables:
+            buffers.setdefault(renderable.unique_name, []).append(renderable.rendered)
 
-    for camera, buffer in cameras.items():
-        camera = camera.replace("/","_")
-        imageio.mimsave(f"visual-servo-rollout/{camera}.mp4", buffer, fps=20)
+    for name, buffer in buffers.items():
+        name = name.replace("/","_")
+        imageio.mimsave(f"visual-servo-rollout/{name}.mp4", buffer, fps=20)
 
 def physics_step(world):
     world.step(render=True)

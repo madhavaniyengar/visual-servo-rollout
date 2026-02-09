@@ -15,6 +15,7 @@ from rollout_datastructs import Observation, ObsAction, Action, Image, SceneObj
 import transform_utils
 from datastructs import StereoSample
 import rollout_utils as ru
+import transform_utils as tu
 
 
 # -----------------------------------------------------------------------------
@@ -60,7 +61,7 @@ class DebugTarget(SceneObj):
         self.rotation = rotation
 
         parent2world = ru.prim_local2world(self.parent)
-        self2parent = transform_utils.create_se3(translation=self.translation, parent2self_euler=self.rotation)
+        self2parent = transform_utils.create_se3(translation=self.translation, active_euler=self.rotation)
         self2world = self2parent @ parent2world
         pose_world = transform_utils.get_translation(self2world)
 
@@ -155,13 +156,29 @@ class Robot(SceneObj):
 
 
 def get_obs(robot) -> Observation:
-    left = robot.camera.get_left_rgb()
-    right = robot.camera.get_right_rgb()
+    left_Image = ru.get_image(robot.camera.left_camera)
+    left_pose = ru.prim_local2world(robot.camera.left_camera)
+    # equivalent:
+    # left_translation, left_rotn = robot.camera.left_camera.get_world_pose(camera_axes="usd")
+    # from isaacsim.core.utils.rotations import euler_angles_to_quat, quat_to_rot_matrix
+    # R = quat_to_rot_matrix(left_rotn) # assuming this is an active rotation: thus this is the body2world
+    # left_pose = np.eye(4)
+    # left_pose[:3, :3] = R
+    # left_pose[:3, -1] = left_translation
+    # pdb.set_trace()
+    # left pose should be a left2world
+    right_Image = ru.get_image(robot.camera.right_camera)
+    right_pose = ru.prim_local2world(robot.camera.right_camera)
+
     depth = robot.camera.get_depth()
 
     return Observation(
-            Image(left, robot.camera.left_camera_path),
-            Image(right, robot.camera.right_camera_path),
+            robot.name,
+            ru.prim_local2world(robot),
+            left_Image,
+            right_Image,
+            left_pose,
+            right_pose,
             depth,
     )
 
@@ -204,7 +221,9 @@ def action_loop_once(robot):
         )
     step = transform_utils.resize_norm(dir, robot.step_size)
     move(step, robot)
-    return ObsAction(obs, Action(dir))
+    robot_pose = ru.prim_local2world(robot)
+    left_coords = robot.camera.left_camera.get_image_coords_from_world_points(tu.transform(dir, robot_pose)[None, ...])
+    return ObsAction(obs, Action(dir, left_coords))
 
 def set_direction_model(robot, direction_model):
     robot.next_direction_model = direction_model

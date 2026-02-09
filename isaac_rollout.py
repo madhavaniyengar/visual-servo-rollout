@@ -17,7 +17,6 @@ from isaacsim import SimulationApp
 
 import transform_utils as tu
 
-ru = None
 from rollout_datastructs import Image, ObsAction, Step, SceneObj, RolloutCamera, SimWorld, Empty
 import utils
 
@@ -107,7 +106,7 @@ def setup_isaacsim(config) -> IsaacSimWorld:
     import omni.replicator.core as rep
     from omni.isaac.core.utils.prims import set_prim_visibility
     from omni.isaac.core.utils.stage import get_current_stage
-    from isaacsim.core.utils.rotations import euler_angles_to_quat
+    from isaacsim.core.utils.rotations import euler_angles_to_quat, quat_to_rot_matrix
 
     import robot as robo
     import rollout_utils as ru
@@ -139,12 +138,12 @@ def setup_isaacsim(config) -> IsaacSimWorld:
 
     pallet = (
             ru.pfind("LoadedPallet_0", stage)
-            .transform(translation=(0., 0.4, 0.06))
+            .transform(translation=(0., 0.4, 0.042), rotation=(0., -0.5, 0))
     )
 
     grasp_frame = (
             Empty(parent=pallet, name="grasp_frame")
-            .transform(translation=(0, -0.09/2, 0), rotation=(0, 0, -90))
+            .transform(translation=(0, -0.10/2, 0), rotation=(0, 0, -90))
     )
 
     if config.direction_use_moving_avg:
@@ -163,7 +162,7 @@ def setup_isaacsim(config) -> IsaacSimWorld:
     obj_registry.register(*robots)
 
     fpv_vis = [
-        RolloutCamera(parent=robot, name=f"vis_{robot.name}_camera").transform(rotation=[90, 0, -90]) 
+        RolloutCamera(parent=robot, name=f"vis_{robot.name}_camera").transform(rotation=[90, 0, -90])
         for robot in robots
     ]
     obj_registry.register(*fpv_vis)
@@ -188,9 +187,7 @@ def step_sim(world, keyboard_input: Optional["KeyboardFlags"]) -> Step:
         robots = world.obj_registry.getall(robo.Robot)
         obs_actions = [robo.action_loop_once(r) for r in robots]
 
-    images = list(map(lambda oa : oa.obs.left, obs_actions))
-
-    return Step(list(itertools.chain(vis_images, images)))
+    return Step(vis_images + obs_actions)
 
 def main(config):
 
@@ -199,8 +196,8 @@ def main(config):
     is_done, keyboard_input = ru.is_done(config)
     steps = []
     while not is_done():
-        step = step_sim(world, keyboard_input)
-        steps.append(step)
+        step_ = step_sim(world, keyboard_input)
+        steps.append(step_)
 
     ru.videoify(steps)
 

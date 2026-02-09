@@ -1,5 +1,7 @@
 import pdb
 
+from abc import ABC, abstractmethod
+import cv2
 from dataclasses import dataclass
 from contextlib import contextmanager
 from typing import List
@@ -7,6 +9,8 @@ from typing import List
 import numpy as np
 
 from datastructs import StereoSample
+import transform_utils as tu
+
 
 # class Wireframe(SceneObj):
 #     def __init__(self, name, parent, orientation=None, translation=None):
@@ -15,6 +19,17 @@ from datastructs import StereoSample
 #
 #     def transform(self, orientation=None, translation=None):
 #         parent_world_pose = self.parent.world_pose
+
+class Renderable(ABC):
+    @property
+    @abstractmethod
+    def unique_name(self) -> str:
+        ...
+
+    @property
+    @abstractmethod
+    def rendered(self):
+        ...
 
 class SceneObj:
     def __init__(self, path, prim):
@@ -56,6 +71,9 @@ class RolloutCamera(SceneObj):
         # pdb.set_trace() # make sure #np.asarray([0.56425, 0.50051, -0.43144, -0.49494]) you get this for the external camera
         self._camera.set_local_pose(translation=translation, orientation=orientation, camera_axes="usd")
         return self
+
+    def get_rgb(self):
+        return self._camera.get_current_frame(clone=True)["rgb"][..., :3]
     
     def __getattr__(self, name):
         return getattr(self._camera, name)
@@ -76,15 +94,28 @@ class SimWorld:
     def __getattr__(self, name):
         return getattr(self._world, name)
 
-@dataclass 
-class Image:
+@dataclass
+class Image(Renderable):
     image: np.ndarray
+    intrinsics: np.ndarray
     path: str
+
+    @property
+    def unique_name(self):
+        return self.path
+
+    @property
+    def rendered(self):
+        return self.image
 
 @dataclass
 class Observation:
+    robot_name: str
+    robot_pose: np.ndarray
     left: Image
     right: Image
+    left_pose: np.ndarray
+    right_pose: np.ndarray
     depth: np.ndarray
 
     def flatten(self):
@@ -104,17 +135,44 @@ class Observation:
 @dataclass 
 class Action:
     direction: np.ndarray
+    left_coords: np.ndarray
 
 
 @dataclass 
 class Step:
-    images: List[Image]
+    renderables: List[Renderable]
 
-    @property
-    def camera_paths(self):
-        return (image.path for image in self.images)
-
-@dataclass 
-class ObsAction:
+@dataclass
+class ObsAction(Renderable):
     obs: Observation
     action: Action
+
+    @property
+    def unique_name(self):
+        return self.obs.robot_name
+
+    @property
+    def rendered(self):
+        # left_K = self.obs.left.intrinsics
+
+        # baseline2world = self.obs.robot_pose
+        # left2world = self.obs.left_pose
+        # baseline2left = baseline2world @ tu.se3_inverse(left2world)
+        # left2baseline = np.eye(4)
+        # left2baseline[:3, :3] = np.array(
+        #     [
+        #         [0, 0, -1],
+        #         [-1, 0, 0],
+        #         [0, 1, 0]
+        #     ]
+        # )
+        # left2baseline[:3, -1] = np.array([0, 0.063/2, 0])
+
+        # baseline2left = tu.se3_inverse(left2baseline)
+        # image_coord = np.dot(left_K, tu.transform(predicted_vector, baseline2left))
+        # image_coord = image_coord[:-1] / image_coord[-1]
+        # image_coord = tuple(map(int, image_coord))
+        left_image = np.ascontiguousarray(self.obs.left.image)
+        coords = tuple(map(int, self.action.left_coords.squeeze()))
+        cv2.circle(left_image, coords, radius=6, color=(255, 0, 0), thickness=5)
+        return left_image
