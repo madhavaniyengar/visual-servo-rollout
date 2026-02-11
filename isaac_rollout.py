@@ -144,7 +144,7 @@ def setup_isaacsim(config) -> IsaacSimWorld:
 
     grasp_frame = (
             Empty(parent=pallet, name="grasp_frame")
-            .transform(translation=(0, -0.10/2, 0), rotation=(0, 0, -90))
+            .transform(translation=(0, -pallet.width/2, 0), rotation=(0, 0, -90))
     )
 
     policy_factory = robo.ChainedPolicyFactory()

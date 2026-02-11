@@ -35,6 +35,30 @@ class SceneObj:
     def __init__(self, path, prim):
         self.path = path
         self.prim = prim
+        self.dims = self._get_current_size()
+
+    def _get_current_size(self):
+        if self.prim:
+            from pxr import Usd, UsdGeom
+            cache = UsdGeom.BBoxCache(Usd.TimeCode.Default(), [UsdGeom.Tokens.default_])
+            bound = cache.ComputeWorldBound(self.prim)
+            range = bound.ComputeAlignedRange()
+            size = range.GetSize()
+            return np.array(size)
+        else:
+            return (0, 0, 0)
+
+    @property
+    def height(self):
+        return self.dims[-1]
+
+    @property
+    def width(self):
+        return self.dims[1]
+
+    @property
+    def length(self):
+        return self.dims[0]
 
     def transform(self, translation=None, rotation=None):
         from datagen2_isaacsim.isaac_utils import create_empty, set_transform
