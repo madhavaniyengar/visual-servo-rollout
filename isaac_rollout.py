@@ -34,7 +34,7 @@ class Config:
     headless: bool = False
     model_config_path: str = "experiment_configs/best_rollout.yaml"
     scene_path : str ='visual-servo-rollout/output_scene.usdz'
-    sim_steps: int = 100
+    n_steps: int = 100
     e_cam_init_pos: tuple[float, float, float] = (-0.5018, 0.00, 0.25)
     center_box_predictions: bool = False
 
