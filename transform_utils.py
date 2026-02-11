@@ -24,7 +24,7 @@ def resize_norm(vector: np.ndarray, norm: float):
     return vector / np.linalg.norm(vector) * norm
 
 def create_se3(*, translation, active_euler):
-    rotn = np.transpose(R.from_euler("xyz", active_euler, degrees=True).as_matrix())
+    rotn = np.transpose(R.from_euler("xyz", active_euler, degrees=True).as_matrix()) if active_euler else np.eye(3)
     se3 = np.eye(4)
     se3[:3, :3] = rotn
     se3[:3, -1] = translation
