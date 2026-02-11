@@ -116,6 +116,7 @@ def setup_isaacsim(config) -> IsaacSimWorld:
     stage = omni.usd.get_context().get_stage()
 
     world_prim = stage.DefinePrim("/World", "Xform")
+    assert os.path.exists(config.scene_path)
     world_prim.GetReferences().AddReference(config.scene_path, "/World")
     distantLight = UsdLux.DistantLight.Define(stage, Sdf.Path("/DistantLight"))
     distantLight.CreateIntensityAttr(1000)
