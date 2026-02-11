@@ -36,6 +36,7 @@ class Config:
     scene_path : str ='visual-servo-rollout/output_scene.usdz'
     sim_steps: int = 100
     e_cam_init_pos: tuple[float, float, float] = (-0.5018, 0.00, 0.25)
+    center_box_predictions: bool = False
 
     near_corner: tuple[float, float, float] = (0.55, -0.15, 0.05)
     far_corner: tuple[float, float, float] = (0.65, 0.15, 0.15)  # going to be defined in the box coordinate frame
@@ -146,15 +147,20 @@ def setup_isaacsim(config) -> IsaacSimWorld:
             .transform(translation=(0, -0.10/2, 0), rotation=(0, 0, -90))
     )
 
+    policy_factory = robo.ChainedPolicyFactory()
     if config.direction_use_moving_avg:
-        policy = partial(robo.MovingAvgDirectionPolicy, maxlen=config.direction_moving_avg_buffer_len)
+        policy_factory.append(partial(robo.MovingAvgDirectionPolicy, maxlen=config.direction_moving_avg_buffer_len))
     else:
-        policy = robo.IdentityDirectionPolicy
+        policy_factory.append(robo.IdentityDirectionPolicy)
+
+    if config.center_box_predictions:
+        policy_factory.append(partial(robo.TransformDirectionPolicy, translation=(0, 0, 0.5 * pallet.height), rotation=None))
+
 
     robots = ru.spawn_n_robots(
         config=config,
         parent=grasp_frame,
-        direction_policy=policy,
+        direction_policy_factory=policy_factory,
         n=config.n_robots,
         visualize_direction=True
         #TODO: you're basically keeping the arrow registry internal to the robot
