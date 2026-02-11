@@ -173,7 +173,10 @@ def setup_isaacsim(config) -> IsaacSimWorld:
     ]
     obj_registry.register(*fpv_vis)
 
-    debug_target = robo.DebugTarget(name="gt target", parent=grasp_frame, color=(0., 1., 0., 1.), thickness=50)
+    debug_target = (
+            robo.DebugTarget(name="gt target", parent=grasp_frame, color=(0., 1., 0., 1.), thickness=50)
+            .transform(translation=(0, 0, pallet.height/2))
+    )
     obj_registry.register(debug_target)
 
     sim_world = SimWorld(stage_units_in_meters=1.0)
