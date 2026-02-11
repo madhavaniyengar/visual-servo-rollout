@@ -104,7 +104,7 @@ def sample_in_box(corner1, corner2, n=1):
 def get_image(camera) -> Image:
     return Image(camera.get_rgb(), camera.get_intrinsics_matrix(), camera.path)
 
-def spawn_n_robots(config, parent: SceneObj, direction_policy, *, n: int, visualize_direction: bool):
+def spawn_n_robots(config, parent: SceneObj, direction_policy_factory, *, n: int, visualize_direction: bool):
     model_config = utils.load_config(config.model_config_path)
     #TODO: sample in box should be a sampling policy, a function passed in to get the robot positions
     sampled_poses = sample_in_box(config.near_corner, config.far_corner, n=n)
@@ -119,7 +119,7 @@ def spawn_n_robots(config, parent: SceneObj, direction_policy, *, n: int, visual
             pose,
             config.robot_init_rot,
             direction_model,
-            direction_policy(),
+            direction_policy_factory(),
             config.step_size,
             visualize_direction=visualize_direction,
         )
@@ -139,7 +139,7 @@ def prim_at_path(path):
 
 def is_done(config):
     keyboard_input = KeyboardFlags() if config.debug else None
-    countdown = (False for _ in range(config.sim_steps))
+    countdown = (False for _ in range(config.n_steps))
     def _is_done():
         return keyboard_input.quit_flag() if config.debug else next(countdown, True)
     return _is_done, keyboard_input

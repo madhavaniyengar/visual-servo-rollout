@@ -106,6 +106,25 @@ class DebugRegistry:
 # -----------------------------------------------------------------------------
 # Robot
 # -----------------------------------------------------------------------------
+class ChainedPolicy:
+    def __init__(self, *policy_objects):
+        self._policies = policy_objects
+
+    def __call__(self, direction):
+        for p in self._policies:
+            direction = p(direction)
+
+        return direction
+
+class ChainedPolicyFactory:
+    def __init__(self):
+        self._policy_factories = []
+
+    def append(self, *factories):
+        self._policy_factories += factories
+
+    def __call__(self):
+        return ChainedPolicy(*(factory() for factory in self._policy_factories))
 
 class IdentityDirectionPolicy:
     def __call__(self, direction):
@@ -118,6 +137,20 @@ class MovingAvgDirectionPolicy:
     def __call__(self, direction: np.ndarray):
         self.buffer.append(direction)
         return np.array(self.buffer).mean(axis=0)
+
+class TransformDirectionPolicy:
+    def __init__(self, translation, rotation):
+        self._translation = translation
+        self._rotation = rotation
+
+    def __call__(self, direction):
+
+        if self._translation:
+            direction = direction + self._translation
+        if self._rotation:
+            direction = np.dot(self._rotation, direction)
+
+        return direction
 
 class Robot(SceneObj):
 
