@@ -68,6 +68,7 @@ class DebugTarget(SceneObj):
         DebugRegistry.get().draw(
                 self.name, PointSpec(pose_world, self.color, self.thickness)
         )
+        return self
 
     def hide(self):
         DebugRegistry.get().hide(self.name)
